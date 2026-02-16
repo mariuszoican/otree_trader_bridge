@@ -1,8 +1,10 @@
 import json
 import os
 import socket
+import sqlite3
 import traceback
 from datetime import datetime, timezone
+from pathlib import Path
 from urllib import error, parse, request
 
 from otree.api import *
@@ -366,3 +368,160 @@ page_sequence = [
       InitFailed,
         TradePage, 
         Results]
+
+
+def _resolve_sqlite_path_for_exports():
+    db_url = str(os.getenv("DATABASE_URL", "")).strip()
+    if db_url.startswith("sqlite:///"):
+        return db_url[len("sqlite:///") :]
+    # Local default for this oTree project.
+    return str((Path(__file__).resolve().parents[1] / "db.sqlite3").resolve())
+
+
+def custom_export_messages(players):
+    yield [
+        "trading_session_uuid",
+        "recipient_trader_uuid",
+        "recipient_trader_type",
+        "message_type",
+        "content_json",
+        "timestamp",
+        "created_ts",
+    ]
+
+    sqlite_path = _resolve_sqlite_path_for_exports()
+    if not sqlite_path or not os.path.exists(sqlite_path):
+        _log("custom_export_messages skipped: sqlite path missing", sqlite_path=sqlite_path)
+        return
+
+    try:
+        conn = sqlite3.connect(sqlite_path)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT m.trading_session_uuid,
+                   m.recipient_trader_uuid,
+                   t.trader_type AS recipient_trader_type,
+                   m.message_type,
+                   m.content_json,
+                   m.timestamp,
+                   m.created_ts
+            FROM trading_platform_messages AS m
+            LEFT JOIN trading_platform_traders AS t
+              ON t.trading_session_uuid = m.trading_session_uuid
+             AND t.trader_uuid = m.recipient_trader_uuid
+            ORDER BY m.id ASC
+            """
+        )
+        rows = cur.fetchall()
+    except sqlite3.OperationalError as exc:
+        # Table may not exist yet in early runs; export header only.
+        _log("custom_export_messages skipped: trading_platform_messages unavailable", error=str(exc))
+        return
+    except Exception as exc:
+        _log("custom_export_messages failed", error=str(exc), traceback=traceback.format_exc())
+        return
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    for row in rows:
+        trading_session_uuid = str(row["trading_session_uuid"] or "")
+        recipient_uuid = str(row["recipient_trader_uuid"] or "")
+        recipient_type = str(row["recipient_trader_type"] or "")
+        message_type = str(row["message_type"] or "")
+        content_json = str(row["content_json"] or "")
+        timestamp = str(row["timestamp"] or "")
+        created_ts = row["created_ts"]
+
+        yield [
+            trading_session_uuid,
+            recipient_uuid,
+            recipient_type,
+            message_type,
+            content_json,
+            timestamp,
+            created_ts,
+        ]
+
+
+def custom_export_transactions(players):
+    yield [
+        "trading_session_uuid",
+        "transaction_id",
+        "bid_order_id",
+        "ask_order_id",
+        "bid_trader_uuid",
+        "bid_trader_type",
+        "ask_trader_uuid",
+        "ask_trader_type",
+        "price",
+        "timestamp",
+        "transaction_json",
+        "created_ts",
+    ]
+
+    sqlite_path = _resolve_sqlite_path_for_exports()
+    if not sqlite_path or not os.path.exists(sqlite_path):
+        _log("custom_export_transactions skipped: sqlite path missing", sqlite_path=sqlite_path)
+        return
+
+    try:
+        conn = sqlite3.connect(sqlite_path)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT tx.trading_session_uuid,
+                   tx.transaction_id,
+                   tx.bid_order_id,
+                   tx.ask_order_id,
+                   tx.bid_trader_uuid,
+                   bt.trader_type AS bid_trader_type,
+                   tx.ask_trader_uuid,
+                   at.trader_type AS ask_trader_type,
+                   tx.price,
+                   tx.timestamp,
+                   tx.transaction_json,
+                   tx.created_ts
+            FROM trading_platform_transactions AS tx
+            LEFT JOIN trading_platform_traders AS bt
+              ON bt.trading_session_uuid = tx.trading_session_uuid
+             AND bt.trader_uuid = tx.bid_trader_uuid
+            LEFT JOIN trading_platform_traders AS at
+              ON at.trading_session_uuid = tx.trading_session_uuid
+             AND at.trader_uuid = tx.ask_trader_uuid
+            ORDER BY tx.id ASC
+            """
+        )
+        rows = cur.fetchall()
+    except sqlite3.OperationalError as exc:
+        _log("custom_export_transactions skipped: trading_platform_transactions unavailable", error=str(exc))
+        return
+    except Exception as exc:
+        _log("custom_export_transactions failed", error=str(exc), traceback=traceback.format_exc())
+        return
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    for row in rows:
+        yield [
+            str(row["trading_session_uuid"] or ""),
+            str(row["transaction_id"] or ""),
+            str(row["bid_order_id"] or ""),
+            str(row["ask_order_id"] or ""),
+            str(row["bid_trader_uuid"] or ""),
+            str(row["bid_trader_type"] or ""),
+            str(row["ask_trader_uuid"] or ""),
+            str(row["ask_trader_type"] or ""),
+            row["price"],
+            str(row["timestamp"] or ""),
+            str(row["transaction_json"] or ""),
+            row["created_ts"],
+        ]
