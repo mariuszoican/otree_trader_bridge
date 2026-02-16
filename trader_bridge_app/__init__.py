@@ -21,6 +21,7 @@ class C(BaseConstants):
     DEFAULT_TRADING_API_BASE = "http://127.0.0.1:8001"
     DEFAULT_API_TIMEOUT_SECONDS = 20
     DEFAULT_TRADING_DAY_DURATION = 5
+    DEFAULT_STEP = 1
     DEFAULT_MAX_ORDERS_PER_MINUTE = 30
     DEFAULT_INITIAL_MIDPOINT = 100
     DEFAULT_INITIAL_SPREAD = 10
@@ -96,6 +97,21 @@ def _as_int(value, fallback):
         return fallback
 
 
+def _as_bool(value, fallback=False):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return fallback
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return fallback
+
+
 def _normalize_http_base(base_url):
     url = str(base_url or "").strip()
     if not url:
@@ -156,6 +172,10 @@ def _build_initiate_payload(group: Group, num_players: int):
             cfg.get("trading_day_duration", C.DEFAULT_TRADING_DAY_DURATION),
             C.DEFAULT_TRADING_DAY_DURATION,
         ),
+        step=_as_int(
+            cfg.get("step", C.DEFAULT_STEP),
+            C.DEFAULT_STEP,
+        ),
         max_orders_per_minute=_as_int(
             cfg.get("max_orders_per_minute", C.DEFAULT_MAX_ORDERS_PER_MINUTE),
             C.DEFAULT_MAX_ORDERS_PER_MINUTE,
@@ -169,7 +189,7 @@ def _build_initiate_payload(group: Group, num_players: int):
             C.DEFAULT_ALERT_STREAK_FREQUENCY,
         ),
         alert_window_size=_as_int(cfg.get("alert_window_size", C.DEFAULT_ALERT_WINDOW_SIZE), C.DEFAULT_ALERT_WINDOW_SIZE),
-        allow_self_trade=bool(cfg.get("allow_self_trade", C.DEFAULT_ALLOW_SELF_TRADE)),
+        allow_self_trade=_as_bool(cfg.get("allow_self_trade", C.DEFAULT_ALLOW_SELF_TRADE), C.DEFAULT_ALLOW_SELF_TRADE),
     )
 
 
@@ -318,6 +338,7 @@ class TradePage(Page):
     @staticmethod
     def js_vars(player: Player):
         ws_url = f"{player.group.trading_ws_base}/trader/{player.trader_uuid}"
+        gamified = _as_bool(player.session.config.get("gamified", True), True)
         return dict(
             wsUrl=ws_url,
             wsBase=player.group.trading_ws_base,
@@ -326,6 +347,7 @@ class TradePage(Page):
             tradingApiBase=player.group.trading_api_base,
             tradingSessionUuid=player.group.trading_session_uuid,
             playerIdInGroup=player.id_in_group,
+            gamified=gamified,
         )
 
     @staticmethod

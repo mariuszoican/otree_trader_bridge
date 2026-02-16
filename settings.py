@@ -11,6 +11,7 @@ SESSION_CONFIGS = [
         trading_api_base=environ.get("TRADING_API_BASE", "http://localhost:8001"),
         trading_api_timeout_seconds=20,
         trading_day_duration=5,
+        step=1,
         max_orders_per_minute=30,
         initial_midpoint=100,
         initial_spread=10,
@@ -19,6 +20,7 @@ SESSION_CONFIGS = [
         alert_streak_frequency=3,
         alert_window_size=5,
         allow_self_trade=True,
+        gamified=True,
     ),
 ]
 
