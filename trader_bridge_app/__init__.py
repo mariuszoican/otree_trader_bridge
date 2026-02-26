@@ -18,11 +18,11 @@ opens a websocket-driven trading page.
 class C(BaseConstants):
     NAME_IN_URL = "trader_bridge"
     PLAYERS_PER_GROUP = None
-    NUM_ROUNDS = 1
+    NUM_ROUNDS = 30
 
     DEFAULT_TRADING_API_BASE = "http://127.0.0.1:8001"
     DEFAULT_API_TIMEOUT_SECONDS = 20
-    DEFAULT_TRADING_DAY_DURATION = 5
+    DEFAULT_TRADING_DAY_DURATION = 1
     DEFAULT_STEP = 1
     DEFAULT_MAX_ORDERS_PER_MINUTE = 30
     DEFAULT_INITIAL_MIDPOINT = 100
@@ -32,6 +32,21 @@ class C(BaseConstants):
     DEFAULT_ALERT_STREAK_FREQUENCY = 3
     DEFAULT_ALERT_WINDOW_SIZE = 5
     DEFAULT_ALLOW_SELF_TRADE = True
+    DEFAULT_GROUP_SIZE = 2
+    DEFAULT_HYBRID_NOISE_TRADERS = 1
+    TREATMENTS = ("gh", "nh", "gm", "nm")
+    TREATMENT_MARKET_DESIGN = {
+        "gh": "gamified",
+        "gm": "gamified",
+        "nh": "non_gamified",
+        "nm": "non_gamified",
+    }
+    TREATMENT_GROUP_COMPOSITION = {
+        "gh": "human_only",
+        "nh": "human_only",
+        "gm": "hybrid",
+        "nm": "hybrid",
+    }
 
 
 class Subsession(BaseSubsession):
@@ -44,6 +59,9 @@ class Group(BaseGroup):
     trading_ws_base = models.StringField(blank=True)
     trading_init_error = models.LongStringField(blank=True)
     trading_day_duration_minutes = models.IntegerField(initial=C.DEFAULT_TRADING_DAY_DURATION)
+    treatment = models.StringField(initial="gh")
+    market_design = models.StringField(initial="gamified")
+    group_composition = models.StringField(initial="human_only")
 
 
 class Player(BasePlayer):
@@ -67,7 +85,13 @@ def creating_session(subsession: Subsession):
         session_code=getattr(subsession.session, "code", None),
     )
     if subsession.round_number != 1:
-        _log("creating_session skipped because round_number != 1", round_number=subsession.round_number)
+        subsession.group_like_round(1)
+        for group in subsession.get_groups():
+            round_1_group = group.in_round(1)
+            group.treatment = round_1_group.treatment
+            group.market_design = round_1_group.market_design
+            group.group_composition = round_1_group.group_composition
+        _log("creating_session copied group matrix + treatments from round 1", round_number=subsession.round_number)
         return
 
     players = subsession.get_players()
@@ -77,7 +101,7 @@ def creating_session(subsession: Subsession):
 
     _log("creating_session players loaded", player_ids=[p.id_in_subsession for p in players], num_players=len(players))
 
-    desired_size = _as_int(subsession.session.config.get("players_per_group", 4), 4)
+    desired_size = _as_int(subsession.session.config.get("players_per_group", C.DEFAULT_GROUP_SIZE), C.DEFAULT_GROUP_SIZE)
     desired_size = max(2, desired_size)
     _log("creating_session using group size", requested=subsession.session.config.get("players_per_group"), applied=desired_size)
 
@@ -90,6 +114,40 @@ def creating_session(subsession: Subsession):
         group_sizes=[len(g) for g in matrix],
         groups=[[p.id_in_subsession for p in g] for g in matrix],
     )
+
+    configured_treatments = _parse_treatments(subsession.session.config.get("treatments"))
+    groups = subsession.get_groups()
+    for idx, group in enumerate(groups):
+        treatment = configured_treatments[idx % len(configured_treatments)]
+        _set_group_treatment(group, treatment)
+    _log(
+        "creating_session assigned treatments",
+        treatments=[g.treatment for g in groups],
+        market_designs=[g.market_design for g in groups],
+        group_compositions=[g.group_composition for g in groups],
+    )
+
+
+def _parse_treatments(raw_value):
+    if raw_value is None:
+        return list(C.TREATMENTS)
+    if isinstance(raw_value, str):
+        candidate_values = [x.strip().lower() for x in raw_value.split(",")]
+    elif isinstance(raw_value, (list, tuple)):
+        candidate_values = [str(x).strip().lower() for x in raw_value]
+    else:
+        return list(C.TREATMENTS)
+    filtered = [x for x in candidate_values if x in C.TREATMENTS]
+    return filtered or list(C.TREATMENTS)
+
+
+def _set_group_treatment(group: Group, treatment: str):
+    treatment_value = str(treatment or "").strip().lower()
+    if treatment_value not in C.TREATMENTS:
+        treatment_value = C.TREATMENTS[0]
+    group.treatment = treatment_value
+    group.market_design = C.TREATMENT_MARKET_DESIGN[treatment_value]
+    group.group_composition = C.TREATMENT_GROUP_COMPOSITION[treatment_value]
 
 
 def _as_int(value, fallback):
@@ -168,8 +226,16 @@ def _post_json(url, payload, timeout_seconds):
 
 def _build_initiate_payload(group: Group, num_players: int):
     cfg = group.session.config
+    hybrid_noise_traders = _as_int(
+        cfg.get("hybrid_noise_traders", C.DEFAULT_HYBRID_NOISE_TRADERS),
+        C.DEFAULT_HYBRID_NOISE_TRADERS,
+    )
+    # TEMP: force noise traders in all treatments (including "human_only") for debugging/demo runs.
+    # Revert to the composition-based condition once we restore treatment-specific behavior.
+    num_noise_traders = max(0, hybrid_noise_traders)
     return dict(
         num_human_traders=num_players,
+        num_noise_traders=num_noise_traders,
         trading_day_duration=_as_int(
             cfg.get("trading_day_duration", C.DEFAULT_TRADING_DAY_DURATION),
             C.DEFAULT_TRADING_DAY_DURATION,
@@ -233,6 +299,9 @@ def after_all_players_arrive(group: Group):
         ws_base=group.trading_ws_base,
         timeout_seconds=timeout_seconds,
         trading_day_duration_minutes=group.trading_day_duration_minutes,
+        treatment=group.treatment,
+        market_design=group.market_design,
+        group_composition=group.group_composition,
     )
 
     try:
@@ -335,12 +404,15 @@ class TradePage(Page):
             trader_uuid=player.trader_uuid,
             trading_api_base=player.group.trading_api_base,
             trading_session_uuid=player.group.trading_session_uuid,
+            treatment=player.group.treatment,
+            market_design=player.group.market_design,
+            group_composition=player.group.group_composition,
         )
 
     @staticmethod
     def js_vars(player: Player):
         ws_url = f"{player.group.trading_ws_base}/trader/{player.trader_uuid}"
-        gamified = _as_bool(player.session.config.get("gamified", True), True)
+        gamified = player.group.market_design == "gamified"
         return dict(
             wsUrl=ws_url,
             wsBase=player.group.trading_ws_base,
@@ -350,6 +422,9 @@ class TradePage(Page):
             tradingSessionUuid=player.group.trading_session_uuid,
             playerIdInGroup=player.id_in_group,
             gamified=gamified,
+            treatment=player.group.treatment,
+            marketDesign=player.group.market_design,
+            groupComposition=player.group.group_composition,
         )
 
     @staticmethod
@@ -508,26 +583,76 @@ def custom_export_messages(players):
         ]
 
 
-def custom_export_transactions(players):
-    yield [
-        "trading_session_uuid",
-        "transaction_id",
-        "bid_order_id",
-        "ask_order_id",
-        "bid_trader_uuid",
-        "bid_trader_type",
-        "ask_trader_uuid",
-        "ask_trader_type",
-        "quantity",
-        "price",
-        "timestamp",
-        "transaction_json",
-        "created_ts",
-    ]
+def _to_float_or_none(value):
+    try:
+        if value is None or value == "":
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
-    rows = _fetch_export_rows(
+
+def _to_int_or_none(value):
+    try:
+        if value is None or value == "":
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_side(order_type_raw):
+    text = str(order_type_raw or "").strip().lower()
+    if text in {"1", "bid", "b"}:
+        return "bid"
+    if text in {"-1", "ask", "a"}:
+        return "ask"
+    return ""
+
+
+def _event_time_sort_key(ts_text, created_ts):
+    ts_text = str(ts_text or "").strip()
+    if ts_text:
+        candidate = ts_text.replace("Z", "+00:00")
+        try:
+            return datetime.fromisoformat(candidate).timestamp()
+        except Exception:
+            pass
+    created = _to_float_or_none(created_ts)
+    return created if created is not None else 0.0
+
+
+def _fetch_order_snapshot_rows_for_market_exports():
+    return _fetch_export_rows(
         """
-        SELECT tx.trading_session_uuid,
+        SELECT o.id AS row_id,
+               o.trading_session_uuid,
+               o.trader_uuid,
+               t.trader_type AS trader_type,
+               o.order_id,
+               o.status,
+               o.order_type,
+               o.amount,
+               o.price,
+               o.timestamp,
+               o.order_json,
+               o.created_ts
+        FROM trading_platform_orders AS o
+        LEFT JOIN trading_platform_traders AS t
+          ON t.trading_session_uuid = o.trading_session_uuid
+         AND t.trader_uuid = o.trader_uuid
+        ORDER BY o.id ASC
+        """,
+        export_name="market_export_orders_source",
+        missing_table_hint="trading_platform_orders unavailable",
+    )
+
+
+def _fetch_trade_rows_for_market_exports():
+    return _fetch_export_rows(
+        """
+        SELECT tx.id AS row_id,
+               tx.trading_session_uuid,
                tx.transaction_id,
                tx.bid_order_id,
                tx.ask_order_id,
@@ -548,78 +673,419 @@ def custom_export_transactions(players):
          AND at.trader_uuid = tx.ask_trader_uuid
         ORDER BY tx.id ASC
         """,
-        export_name="custom_export_transactions",
+        export_name="market_export_trades_source",
         missing_table_hint="trading_platform_transactions unavailable",
     )
 
-    for row in rows:
+
+def _fetch_persisted_mbo_rows():
+    return _fetch_export_rows(
+        """
+        SELECT trading_session_uuid,
+               event_seq,
+               event_ts,
+               record_kind,
+               event_type,
+               side,
+               order_id,
+               trader_uuid,
+               price,
+               size,
+               size_delta,
+               size_resting_after,
+               status_after,
+               match_id,
+               contra_order_id,
+               bid_order_id,
+               ask_order_id,
+               bid_trader_uuid,
+               ask_trader_uuid,
+               created_ts
+        FROM trading_platform_mbo_events
+        ORDER BY id ASC
+        """,
+        export_name="custom_export_mbo",
+        missing_table_hint="trading_platform_mbo_events unavailable",
+    )
+
+
+def _fetch_persisted_mbp1_rows():
+    return _fetch_export_rows(
+        """
+        SELECT trading_session_uuid,
+               event_seq,
+               event_ts,
+               source_mbo_event_seq,
+               source_order_id,
+               source_event_type,
+               best_bid_px,
+               best_bid_sz,
+               best_bid_ct,
+               best_ask_px,
+               best_ask_sz,
+               best_ask_ct,
+               spread,
+               midpoint,
+               created_ts
+        FROM trading_platform_mbp1_events
+        ORDER BY id ASC
+        """,
+        export_name="custom_export_mbp1",
+        missing_table_hint="trading_platform_mbp1_events unavailable",
+    )
+
+
+def _infer_order_event_type(previous_snapshot, current_snapshot):
+    status = str((current_snapshot or {}).get("status") or "").strip().lower()
+    prev_status = str((previous_snapshot or {}).get("status") or "").strip().lower()
+    current_amount = _to_float_or_none((current_snapshot or {}).get("amount"))
+    previous_amount = _to_float_or_none((previous_snapshot or {}).get("amount"))
+    current_price = _to_float_or_none((current_snapshot or {}).get("price"))
+    previous_price = _to_float_or_none((previous_snapshot or {}).get("price"))
+
+    if previous_snapshot is None:
+        if status in {"cancelled", "executed"}:
+            return status
+        return "add"
+
+    if status == "cancelled":
+        return "cancel"
+    if status == "executed":
+        return "fill"
+    if current_amount is not None and previous_amount is not None and current_amount < previous_amount - 1e-12:
+        return "fill"
+    if current_price != previous_price:
+        return "modify"
+    if current_amount != previous_amount:
+        return "modify"
+    if status != prev_status:
+        return "modify"
+    return "state"
+
+
+def _infer_qty_delta(previous_snapshot, current_snapshot, event_type):
+    current_amount = _to_float_or_none((current_snapshot or {}).get("amount"))
+    previous_amount = _to_float_or_none((previous_snapshot or {}).get("amount"))
+
+    if previous_snapshot is None:
+        return current_amount
+    if event_type in {"cancel", "cancelled", "executed"}:
+        return -previous_amount if previous_amount is not None else None
+    if event_type == "fill":
+        if current_amount is not None and previous_amount is not None:
+            return current_amount - previous_amount
+        return -previous_amount if previous_amount is not None else None
+    if event_type == "modify":
+        if current_amount is not None and previous_amount is not None:
+            return current_amount - previous_amount
+    return None
+
+
+def _order_snapshot_state_dict(row):
+    return {
+        "status": str(row["status"] or ""),
+        "amount": row["amount"],
+        "price": row["price"],
+        "order_type": str(row["order_type"] or ""),
+    }
+
+
+def _best_levels_from_active_orders(active_orders_by_id):
+    bid_levels = {}
+    ask_levels = {}
+
+    for order in (active_orders_by_id or {}).values():
+        side = _normalize_side(order.get("order_type"))
+        price = _to_float_or_none(order.get("price"))
+        amount = _to_float_or_none(order.get("amount"))
+        if side not in {"bid", "ask"} or price is None or amount is None or amount <= 0:
+            continue
+
+        target = bid_levels if side == "bid" else ask_levels
+        level = target.setdefault(price, {"size": 0.0, "count": 0})
+        level["size"] += amount
+        level["count"] += 1
+
+    best_bid_px = max(bid_levels.keys()) if bid_levels else None
+    best_ask_px = min(ask_levels.keys()) if ask_levels else None
+    best_bid = bid_levels.get(best_bid_px) if best_bid_px is not None else None
+    best_ask = ask_levels.get(best_ask_px) if best_ask_px is not None else None
+
+    spread = None
+    midpoint = None
+    if best_bid_px is not None and best_ask_px is not None:
+        spread = best_ask_px - best_bid_px
+        midpoint = (best_ask_px + best_bid_px) / 2.0
+
+    return {
+        "best_bid_px": best_bid_px,
+        "best_bid_sz": (best_bid or {}).get("size"),
+        "best_bid_ct": (best_bid or {}).get("count"),
+        "best_ask_px": best_ask_px,
+        "best_ask_sz": (best_ask or {}).get("size"),
+        "best_ask_ct": (best_ask or {}).get("count"),
+        "spread": spread,
+        "midpoint": midpoint,
+    }
+
+
+def custom_export_mbo(players):
+    yield [
+        "trading_session_uuid",
+        "event_seq",
+        "event_ts",
+        "record_kind",
+        "event_type",
+        "side",
+        "order_id",
+        "trader_uuid",
+        "price",
+        "size",
+        "size_delta",
+        "size_resting_after",
+        "status_after",
+        "match_id",
+        "contra_order_id",
+        "bid_order_id",
+        "ask_order_id",
+        "bid_trader_uuid",
+        "ask_trader_uuid",
+        "source_created_ts",
+    ]
+
+    persisted_rows = _fetch_persisted_mbo_rows()
+    if persisted_rows:
+        for row in persisted_rows:
+            yield [
+                str(row["trading_session_uuid"] or ""),
+                row["event_seq"],
+                str(row["event_ts"] or ""),
+                str(row["record_kind"] or ""),
+                str(row["event_type"] or ""),
+                str(row["side"] or ""),
+                str(row["order_id"] or ""),
+                str(row["trader_uuid"] or ""),
+                row["price"],
+                row["size"],
+                row["size_delta"],
+                row["size_resting_after"],
+                str(row["status_after"] or ""),
+                str(row["match_id"] or ""),
+                str(row["contra_order_id"] or ""),
+                str(row["bid_order_id"] or ""),
+                str(row["ask_order_id"] or ""),
+                str(row["bid_trader_uuid"] or ""),
+                str(row["ask_trader_uuid"] or ""),
+                row["created_ts"],
+            ]
+        return
+
+    order_rows = _fetch_order_snapshot_rows_for_market_exports()
+    trade_rows = _fetch_trade_rows_for_market_exports()
+
+    events = []
+    previous_by_order = {}
+
+    for row in order_rows:
+        session_uuid = str(row["trading_session_uuid"] or "")
+        order_id = str(row["order_id"] or "")
+        order_key = (session_uuid, order_id)
+        current_snapshot = _order_snapshot_state_dict(row)
+        previous_snapshot = previous_by_order.get(order_key)
+
+        event_type = _infer_order_event_type(previous_snapshot, current_snapshot)
+        qty_delta = _infer_qty_delta(previous_snapshot, current_snapshot, event_type)
+        side = _normalize_side(row["order_type"])
+        qty = _to_float_or_none(row["amount"])
+
+        events.append(
+            {
+                "sort_ts": _event_time_sort_key(row["timestamp"], row["created_ts"]),
+                "sort_source": 0,
+                "sort_id": _to_int_or_none(row["row_id"]) or 0,
+                "trading_session_uuid": session_uuid,
+                "event_ts": str(row["timestamp"] or ""),
+                "record_kind": "order",
+                "event_type": event_type,
+                "side": side,
+                "order_id": order_id,
+                "trader_uuid": str(row["trader_uuid"] or ""),
+                "price": row["price"],
+                "qty": qty,
+                "qty_delta": qty_delta,
+                "qty_resting_after": qty,
+                "status_after": str(row["status"] or ""),
+                "match_id": "",
+                "contra_order_id": "",
+                "bid_order_id": "",
+                "ask_order_id": "",
+                "bid_trader_uuid": "",
+                "ask_trader_uuid": "",
+                "source_created_ts": row["created_ts"],
+            }
+        )
+
+        previous_by_order[order_key] = current_snapshot
+
+    for row in trade_rows:
         quantity = _extract_quantity_from_transaction_json(row["transaction_json"])
+        qty = _to_float_or_none(quantity)
+        events.append(
+            {
+                "sort_ts": _event_time_sort_key(row["timestamp"], row["created_ts"]),
+                "sort_source": 1,
+                "sort_id": _to_int_or_none(row["row_id"]) or 0,
+                "trading_session_uuid": str(row["trading_session_uuid"] or ""),
+                "event_ts": str(row["timestamp"] or ""),
+                "record_kind": "trade",
+                "event_type": "trade",
+                "side": "",
+                "order_id": "",
+                "trader_uuid": "",
+                "price": row["price"],
+                "qty": qty if qty is not None else quantity,
+                "qty_delta": "",
+                "qty_resting_after": "",
+                "status_after": "",
+                "match_id": str(row["transaction_id"] or ""),
+                "contra_order_id": "",
+                "bid_order_id": str(row["bid_order_id"] or ""),
+                "ask_order_id": str(row["ask_order_id"] or ""),
+                "bid_trader_uuid": str(row["bid_trader_uuid"] or ""),
+                "ask_trader_uuid": str(row["ask_trader_uuid"] or ""),
+                "source_created_ts": row["created_ts"],
+            }
+        )
+
+    events.sort(key=lambda e: (e["sort_ts"], e["sort_source"], e["sort_id"]))
+
+    for idx, event in enumerate(events, start=1):
         yield [
-            str(row["trading_session_uuid"] or ""),
-            str(row["transaction_id"] or ""),
-            str(row["bid_order_id"] or ""),
-            str(row["ask_order_id"] or ""),
-            str(row["bid_trader_uuid"] or ""),
-            str(row["bid_trader_type"] or ""),
-            str(row["ask_trader_uuid"] or ""),
-            str(row["ask_trader_type"] or ""),
-            quantity,
-            row["price"],
-            str(row["timestamp"] or ""),
-            str(row["transaction_json"] or ""),
-            row["created_ts"],
+            event["trading_session_uuid"],
+            idx,
+            event["event_ts"],
+            event["record_kind"],
+            event["event_type"],
+            event["side"],
+            event["order_id"],
+            event["trader_uuid"],
+            event["price"],
+            event["qty"],
+            event["qty_delta"],
+            event["qty_resting_after"],
+            event["status_after"],
+            event["match_id"],
+            event["contra_order_id"],
+            event["bid_order_id"],
+            event["ask_order_id"],
+            event["bid_trader_uuid"],
+            event["ask_trader_uuid"],
+            event["source_created_ts"],
         ]
 
 
-def custom_export_orders(players):
+def custom_export_mbp1(players):
     yield [
         "trading_session_uuid",
-        "trader_uuid",
-        "trader_type",
-        "order_id",
-        "status",
-        "order_type",
-        "amount",
-        "price",
-        "timestamp",
-        "order_json",
-        "created_ts",
+        "event_seq",
+        "event_ts",
+        "source_mbo_event_seq",
+        "source_order_id",
+        "source_order_event_type",
+        "best_bid_px",
+        "best_bid_sz",
+        "best_bid_ct",
+        "best_ask_px",
+        "best_ask_sz",
+        "best_ask_ct",
+        "spread",
+        "midpoint",
+        "source_created_ts",
     ]
 
-    rows = _fetch_export_rows(
-        """
-        SELECT o.trading_session_uuid,
-               o.trader_uuid,
-               t.trader_type AS trader_type,
-               o.order_id,
-               o.status,
-               o.order_type,
-               o.amount,
-               o.price,
-               o.timestamp,
-               o.order_json,
-               o.created_ts
-        FROM trading_platform_orders AS o
-        LEFT JOIN trading_platform_traders AS t
-          ON t.trading_session_uuid = o.trading_session_uuid
-         AND t.trader_uuid = o.trader_uuid
-        ORDER BY o.id ASC
-        """,
-        export_name="custom_export_orders",
-        missing_table_hint="trading_platform_orders unavailable",
-    )
+    persisted_rows = _fetch_persisted_mbp1_rows()
+    if persisted_rows:
+        for row in persisted_rows:
+            yield [
+                str(row["trading_session_uuid"] or ""),
+                row["event_seq"],
+                str(row["event_ts"] or ""),
+                row["source_mbo_event_seq"],
+                str(row["source_order_id"] or ""),
+                str(row["source_event_type"] or ""),
+                row["best_bid_px"],
+                row["best_bid_sz"],
+                row["best_bid_ct"],
+                row["best_ask_px"],
+                row["best_ask_sz"],
+                row["best_ask_ct"],
+                row["spread"],
+                row["midpoint"],
+                row["created_ts"],
+            ]
+        return
 
-    for row in rows:
+    order_rows = _fetch_order_snapshot_rows_for_market_exports()
+    active_orders_by_session = {}
+    previous_snapshots_by_order = {}
+    previous_bbo_by_session = {}
+    event_seq = 0
+
+    for row in order_rows:
+        session_uuid = str(row["trading_session_uuid"] or "")
+        order_id = str(row["order_id"] or "")
+        if not session_uuid or not order_id:
+            continue
+
+        order_key = (session_uuid, order_id)
+        current_snapshot = _order_snapshot_state_dict(row)
+        previous_snapshot = previous_snapshots_by_order.get(order_key)
+        source_event_type = _infer_order_event_type(previous_snapshot, current_snapshot)
+        previous_snapshots_by_order[order_key] = current_snapshot
+
+        status = str(row["status"] or "").strip().lower()
+        amount = _to_float_or_none(row["amount"])
+        price = _to_float_or_none(row["price"])
+        side = _normalize_side(row["order_type"])
+
+        session_active = active_orders_by_session.setdefault(session_uuid, {})
+        if status == "active" and side in {"bid", "ask"} and price is not None and amount is not None and amount > 0:
+            session_active[order_id] = {
+                "order_type": row["order_type"],
+                "price": price,
+                "amount": amount,
+            }
+        else:
+            session_active.pop(order_id, None)
+
+        bbo = _best_levels_from_active_orders(session_active)
+        bbo_signature = (
+            bbo["best_bid_px"],
+            bbo["best_bid_sz"],
+            bbo["best_bid_ct"],
+            bbo["best_ask_px"],
+            bbo["best_ask_sz"],
+            bbo["best_ask_ct"],
+        )
+        if previous_bbo_by_session.get(session_uuid) == bbo_signature:
+            continue
+        previous_bbo_by_session[session_uuid] = bbo_signature
+
+        event_seq += 1
         yield [
-            str(row["trading_session_uuid"] or ""),
-            str(row["trader_uuid"] or ""),
-            str(row["trader_type"] or ""),
-            str(row["order_id"] or ""),
-            str(row["status"] or ""),
-            str(row["order_type"] or ""),
-            row["amount"],
-            row["price"],
+            session_uuid,
+            event_seq,
             str(row["timestamp"] or ""),
-            str(row["order_json"] or ""),
+            row["row_id"],
+            order_id,
+            source_event_type,
+            bbo["best_bid_px"],
+            bbo["best_bid_sz"],
+            bbo["best_bid_ct"],
+            bbo["best_ask_px"],
+            bbo["best_ask_sz"],
+            bbo["best_ask_ct"],
+            bbo["spread"],
+            bbo["midpoint"],
             row["created_ts"],
         ]
