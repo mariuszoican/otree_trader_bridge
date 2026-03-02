@@ -601,6 +601,26 @@ def _to_int_or_none(value):
         return None
 
 
+def _extract_submission_metrics_from_mbo_event_json(event_json_raw):
+    try:
+        parsed = json.loads(str(event_json_raw or ""))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return {
+        "queue_position": _to_int_or_none(parsed.get("queue_position")),
+        "queue_size": _to_float_or_none(parsed.get("queue_size")),
+        "submit_best_bid_px": _to_float_or_none(parsed.get("submit_best_bid_px")),
+        "submit_best_ask_px": _to_float_or_none(parsed.get("submit_best_ask_px")),
+        "submit_spread": _to_float_or_none(parsed.get("submit_spread")),
+        "aggr_dist_to_opp_touch": _to_float_or_none(parsed.get("aggr_dist_to_opp_touch")),
+        "aggr_dist_to_opp_touch_over_spread": _to_float_or_none(
+            parsed.get("aggr_dist_to_opp_touch_over_spread")
+        ),
+    }
+
+
 def _normalize_side(order_type_raw):
     text = str(order_type_raw or "").strip().lower()
     if text in {"1", "bid", "b"}:
@@ -700,6 +720,7 @@ def _fetch_persisted_mbo_rows():
                ask_order_id,
                bid_trader_uuid,
                ask_trader_uuid,
+               event_json,
                created_ts
         FROM trading_platform_mbo_events
         ORDER BY id ASC
@@ -843,6 +864,13 @@ def custom_export_mbo(players):
         "size",
         "size_delta",
         "size_resting_after",
+        "queue_position",
+        "queue_size",
+        "submit_best_bid_px",
+        "submit_best_ask_px",
+        "submit_spread",
+        "aggr_dist_to_opp_touch",
+        "aggr_dist_to_opp_touch_over_spread",
         "status_after",
         "match_id",
         "contra_order_id",
@@ -856,6 +884,7 @@ def custom_export_mbo(players):
     persisted_rows = _fetch_persisted_mbo_rows()
     if persisted_rows:
         for row in persisted_rows:
+            metrics = _extract_submission_metrics_from_mbo_event_json(row["event_json"])
             yield [
                 str(row["trading_session_uuid"] or ""),
                 row["event_seq"],
@@ -869,6 +898,17 @@ def custom_export_mbo(players):
                 row["size"],
                 row["size_delta"],
                 row["size_resting_after"],
+                metrics.get("queue_position") if metrics.get("queue_position") is not None else "",
+                metrics.get("queue_size") if metrics.get("queue_size") is not None else "",
+                metrics.get("submit_best_bid_px") if metrics.get("submit_best_bid_px") is not None else "",
+                metrics.get("submit_best_ask_px") if metrics.get("submit_best_ask_px") is not None else "",
+                metrics.get("submit_spread") if metrics.get("submit_spread") is not None else "",
+                metrics.get("aggr_dist_to_opp_touch") if metrics.get("aggr_dist_to_opp_touch") is not None else "",
+                (
+                    metrics.get("aggr_dist_to_opp_touch_over_spread")
+                    if metrics.get("aggr_dist_to_opp_touch_over_spread") is not None
+                    else ""
+                ),
                 str(row["status_after"] or ""),
                 str(row["match_id"] or ""),
                 str(row["contra_order_id"] or ""),
@@ -914,6 +954,13 @@ def custom_export_mbo(players):
                 "qty": qty,
                 "qty_delta": qty_delta,
                 "qty_resting_after": qty,
+                "queue_position": "",
+                "queue_size": "",
+                "submit_best_bid_px": "",
+                "submit_best_ask_px": "",
+                "submit_spread": "",
+                "aggr_dist_to_opp_touch": "",
+                "aggr_dist_to_opp_touch_over_spread": "",
                 "status_after": str(row["status"] or ""),
                 "match_id": "",
                 "contra_order_id": "",
@@ -946,6 +993,13 @@ def custom_export_mbo(players):
                 "qty": qty if qty is not None else quantity,
                 "qty_delta": "",
                 "qty_resting_after": "",
+                "queue_position": "",
+                "queue_size": "",
+                "submit_best_bid_px": "",
+                "submit_best_ask_px": "",
+                "submit_spread": "",
+                "aggr_dist_to_opp_touch": "",
+                "aggr_dist_to_opp_touch_over_spread": "",
                 "status_after": "",
                 "match_id": str(row["transaction_id"] or ""),
                 "contra_order_id": "",
@@ -973,6 +1027,13 @@ def custom_export_mbo(players):
             event["qty"],
             event["qty_delta"],
             event["qty_resting_after"],
+            event["queue_position"],
+            event["queue_size"],
+            event["submit_best_bid_px"],
+            event["submit_best_ask_px"],
+            event["submit_spread"],
+            event["aggr_dist_to_opp_touch"],
+            event["aggr_dist_to_opp_touch_over_spread"],
             event["status_after"],
             event["match_id"],
             event["contra_order_id"],
