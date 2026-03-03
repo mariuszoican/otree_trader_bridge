@@ -533,11 +533,6 @@ def _extract_quantity_from_transaction_json(transaction_json_raw):
     return ""
 
 
-def custom_export(players):
-    """oTree's default custom export entrypoint: gamification UI events."""
-    yield from custom_export_gamification_ui(players)
-
-
 def custom_export_messages(players):
     yield [
         "trading_session_uuid",
@@ -585,60 +580,6 @@ def custom_export_messages(players):
             content_json,
             timestamp,
             created_ts,
-        ]
-
-
-def custom_export_gamification_ui(players):
-    yield [
-        "trading_session_uuid",
-        "trader_uuid",
-        "trader_type",
-        "event_name",
-        "element_type",
-        "element_id",
-        "element_label",
-        "client_ts",
-        "server_received_ts",
-        "payload_json",
-        "created_ts",
-    ]
-
-    rows = _fetch_export_rows(
-        """
-        SELECT g.trading_session_uuid,
-               g.trader_uuid,
-               t.trader_type,
-               g.event_name,
-               g.element_type,
-               g.element_id,
-               g.element_label,
-               g.client_ts,
-               g.server_received_ts,
-               g.payload_json,
-               g.created_ts
-        FROM trading_platform_gamification_ui_events AS g
-        LEFT JOIN trading_platform_traders AS t
-          ON t.trading_session_uuid = g.trading_session_uuid
-         AND t.trader_uuid = g.trader_uuid
-        ORDER BY g.id ASC
-        """,
-        export_name="custom_export_gamification_ui",
-        missing_table_hint="trading_platform_gamification_ui_events unavailable",
-    )
-
-    for row in rows:
-        yield [
-            str(row["trading_session_uuid"] or ""),
-            str(row["trader_uuid"] or ""),
-            str(row["trader_type"] or ""),
-            str(row["event_name"] or ""),
-            str(row["element_type"] or ""),
-            str(row["element_id"] or ""),
-            str(row["element_label"] or ""),
-            str(row["client_ts"] or ""),
-            str(row["server_received_ts"] or ""),
-            str(row["payload_json"] or ""),
-            row["created_ts"],
         ]
 
 

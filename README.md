@@ -66,9 +66,3 @@ otree devserver
 ```
 
 Then open the oTree session URL in multiple browser tabs/players. Each participant receives a unique trader UUID at the wait page barrier.
-
-## Gamification Event Persistence And Export
-
-- Client-side gamification UI events are sent over websocket as `type: "gamification_event"`.
-- The trading backend persists these rows into `trading_platform_gamification_ui_events`.
-- oTree `custom_export(players)` now exports this dataset (same columns as `custom_export_gamification_ui`).
