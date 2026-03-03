@@ -1,2 +1,11 @@
+# Python bytecode / cache
 __pycache__/
+**/__pycache__/
 *.py[cod]
+*.pyc
+*.pyo
+*.pyd
+*$py.class
+
+# Local oTree database
+db.sqlite3

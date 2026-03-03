@@ -16,9 +16,36 @@ opens a websocket-driven trading page.
 
 
 class C(BaseConstants):
+    """
+    Constants class for the trader bridge application.
+
+    Attributes:
+        NAME_IN_URL (str): URL identifier for the app.
+        PLAYERS_PER_GROUP (None): No group structure enforced.
+        NUM_ROUNDS (int): Number of rounds, read from NUM_ROUNDS environment variable (default: 30).
+        
+        DEFAULT_TRADING_API_BASE (str): Base URL for the trading API server.
+        DEFAULT_API_TIMEOUT_SECONDS (int): Timeout duration for API requests in seconds.
+        DEFAULT_TRADING_DAY_DURATION (int): Duration of a trading day in simulation time units.
+        DEFAULT_STEP (int): Single step increment for simulation progression.
+        DEFAULT_MAX_ORDERS_PER_MINUTE (int): Maximum number of orders a player can submit per minute.
+        DEFAULT_INITIAL_MIDPOINT (int): Initial midpoint price for traded assets.
+        DEFAULT_INITIAL_SPREAD (int): Initial bid-ask spread for traded assets.
+        DEFAULT_INITIAL_CASH (int): Initial cash allocation per player.
+        DEFAULT_INITIAL_STOCKS (int): Initial stock allocation per player.
+        DEFAULT_ALERT_STREAK_FREQUENCY (int): Frequency threshold for alert notifications.
+        DEFAULT_ALERT_WINDOW_SIZE (int): Window size for calculating alert metrics.
+        DEFAULT_ALLOW_SELF_TRADE (bool): Whether self-trading is permitted.
+        DEFAULT_GROUP_SIZE (int): Number of players per trading group.
+        DEFAULT_HYBRID_NOISE_TRADERS (int): Number of noise trader agents in hybrid treatment groups.
+        
+        TREATMENTS (tuple): Available treatment conditions.
+        TREATMENT_MARKET_DESIGN (dict): Maps treatments to market design types (gamified or non-gamified).
+        TREATMENT_GROUP_COMPOSITION (dict): Maps treatments to group composition types (human_only or hybrid).
+    """
     NAME_IN_URL = "trader_bridge"
     PLAYERS_PER_GROUP = None
-    NUM_ROUNDS = 30
+    NUM_ROUNDS = int(os.getenv("NUM_ROUNDS", 30))
 
     DEFAULT_TRADING_API_BASE = "http://127.0.0.1:8001"
     DEFAULT_API_TIMEOUT_SECONDS = 20
