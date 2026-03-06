@@ -2,7 +2,7 @@
 {% load otree static %}
 
 {% block title %}
-Day {{ completed_day }} Complete
+Day Break
 {% endblock %}
 
 {% block styles %}
@@ -18,6 +18,10 @@ Day {{ completed_day }} Complete
     --db-warm: #f59e0b;
     --db-bg-1: #f8fafc;
     --db-bg-2: #ecfeff;
+  }
+
+  [v-cloak] {
+    display: none;
   }
 
   body,
@@ -169,46 +173,44 @@ Day {{ completed_day }} Complete
 {% endblock %}
 
 {% block content %}
-<div class="daybreak-shell">
+<div id="daybreakApp" class="daybreak-shell" v-cloak>
   <section class="daybreak-hero">
-    <p class="daybreak-kicker">Market {{ market_number }}</p>
-    <h2 class="daybreak-title">Day {{ completed_day }} Closed</h2>
+    <p class="daybreak-kicker">Market [[ marketNumber ]]</p>
+    <h2 class="daybreak-title">Day [[ completedDay ]] Closed</h2>
     <p class="daybreak-subtitle">
-      Dividend is applied and your position snapshot is ready before Day {{ next_day }} starts.
+      Dividend is applied and your position snapshot is ready before Day [[ nextDay ]] starts.
     </p>
 
     <div class="daybreak-grid">
       <article class="daybreak-stat">
         <p class="daybreak-stat-label">Cash Before Dividend</p>
-        <p class="daybreak-stat-value">${{ current_cash }}</p>
+        <p class="daybreak-stat-value">[[ money(currentCash) ]]</p>
       </article>
       <article class="daybreak-stat">
         <p class="daybreak-stat-label">Shares Held</p>
-        <p class="daybreak-stat-value">{{ num_shares }}</p>
+        <p class="daybreak-stat-value">[[ units(numShares) ]]</p>
       </article>
       <article class="daybreak-stat">
         <p class="daybreak-stat-label">Dividend Per Share</p>
-        <p class="daybreak-stat-value">${{ dividend_per_share  }}</p>
+        <p class="daybreak-stat-value">[[ money(dividendPerShare) ]]</p>
       </article>
       <article class="daybreak-stat">
         <p class="daybreak-stat-label">Dividend Cash</p>
-        <p class="daybreak-stat-value">${{ dividend_cash }}</p>
+        <p class="daybreak-stat-value">[[ money(dividendCash) ]]</p>
       </article>
     </div>
 
     <div class="daybreak-highlight">
-      Cash after dividend: ${{ cash_after_dividend  }}
+      Cash after dividend: [[ money(cashAfterDividend) ]]
     </div>
 
-    {% if snapshot_error %}
-      <div class="daybreak-warning">
-        Snapshot warning: {{ snapshot_error }}
-      </div>
-    {% endif %}
+    <div v-if="snapshotError" class="daybreak-warning">
+      Snapshot warning: [[ snapshotError ]]
+    </div>
   </section>
 
   <section class="survey-card">
-    <h3 class="survey-heading">Forecast for Day {{ next_day }}</h3>
+    <h3 class="survey-heading">Forecast for Day [[ nextDay ]]</h3>
     <p class="survey-help">
       Submit your expected end-of-day price and confidence. Trading resumes once all participants complete this.
     </p>
@@ -234,13 +236,58 @@ Day {{ completed_day }} Complete
   name="forecast_survey_json"
   value=""
 />
+<input type="hidden" id="ctx_market_number" value="{{ market_number }}" />
+<input type="hidden" id="ctx_completed_day" value="{{ completed_day }}" />
+<input type="hidden" id="ctx_next_day" value="{{ next_day }}" />
+<input type="hidden" id="ctx_current_cash" value="{{ current_cash }}" />
+<input type="hidden" id="ctx_num_shares" value="{{ num_shares }}" />
+<input type="hidden" id="ctx_dividend_per_share" value="{{ dividend_per_share }}" />
+<input type="hidden" id="ctx_dividend_cash" value="{{ dividend_cash }}" />
+<input type="hidden" id="ctx_cash_after_dividend" value="{{ cash_after_dividend }}" />
+<input type="hidden" id="ctx_snapshot_error" value="{{ snapshot_error }}" />
 {% endblock %}
 
 {% block scripts %}
 {{ super() }}
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
 <script src="https://unpkg.com/survey-jquery/survey.jquery.min.js"></script>
 <script>
   (function () {
+    const readCtx = (id) => {
+      const el = document.getElementById(id);
+      return el ? String(el.value || "").trim() : "";
+    };
+    const asNumber = (raw, fallback = 0) => {
+      const n = Number(raw);
+      return Number.isFinite(n) ? n : fallback;
+    };
+
+    const app = Vue.createApp({
+      data() {
+        return {
+          marketNumber: asNumber(readCtx("ctx_market_number"), 1),
+          completedDay: asNumber(readCtx("ctx_completed_day"), 1),
+          nextDay: asNumber(readCtx("ctx_next_day"), 2),
+          currentCash: asNumber(readCtx("ctx_current_cash"), 0),
+          numShares: asNumber(readCtx("ctx_num_shares"), 0),
+          dividendPerShare: asNumber(readCtx("ctx_dividend_per_share"), 0),
+          dividendCash: asNumber(readCtx("ctx_dividend_cash"), 0),
+          cashAfterDividend: asNumber(readCtx("ctx_cash_after_dividend"), 0),
+          snapshotError: readCtx("ctx_snapshot_error"),
+        };
+      },
+      methods: {
+        money(value) {
+          return "$" + asNumber(value, 0).toFixed(2);
+        },
+        units(value) {
+          return String(Math.round(asNumber(value, 0)));
+        },
+      },
+    });
+    app.config.compilerOptions.delimiters = ["[[", "]]"];
+    app.mount("#daybreakApp");
+
     const surveyJSON = {
       showPrevButton: false,
       showQuestionNumbers: "off",
@@ -279,13 +326,15 @@ Day {{ completed_day }} Complete
     survey.css = survey.css || {};
     survey.css.root = "sd-root-modern";
 
-    const prefilledPrice = document.getElementById("id_forecast_price_next_day").value;
-    const prefilledConfidence = document.getElementById("id_forecast_confidence_next_day").value;
-    if (prefilledPrice !== "") {
-      survey.setValue("forecast_price_next_day", Number(prefilledPrice));
+    const prefilledPriceRaw = document.getElementById("id_forecast_price_next_day").value;
+    const prefilledPrice = Number(prefilledPriceRaw);
+    const prefilledConfidenceRaw = document.getElementById("id_forecast_confidence_next_day").value;
+    const prefilledConfidence = Number(prefilledConfidenceRaw);
+    if (Number.isFinite(prefilledPrice)) {
+      survey.setValue("forecast_price_next_day", prefilledPrice);
     }
-    if (prefilledConfidence !== "") {
-      survey.setValue("forecast_confidence_next_day", Number(prefilledConfidence));
+    if (Number.isFinite(prefilledConfidence)) {
+      survey.setValue("forecast_confidence_next_day", prefilledConfidence);
     }
 
     survey.onComplete.add(function (result) {
