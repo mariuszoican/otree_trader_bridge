@@ -1,6 +1,8 @@
 import os
-import random
 import traceback
+import csv
+import json
+from pathlib import Path
 
 from otree.api import *
 from .utils import (
@@ -80,7 +82,11 @@ class C(BaseConstants):
         "gm": "hybrid",
         "nm": "hybrid",
     }
-    DIVIDEND_VALUES = (0, 8, 16, 24)
+    DEFAULT_NUM_DAYS = NUM_ROUNDS
+    DEFAULT_HUMAN_TRADER_ENDOWMENTS = (
+        (2600.0, 20),
+        (3800.0, 10),
+    )
 
 
 class Subsession(BaseSubsession):
@@ -96,6 +102,8 @@ class Group(BaseGroup):
     treatment = models.StringField(initial="gh")
     market_design = models.StringField(initial="gamified")
     group_composition = models.StringField(initial="human_only")
+    num_days = models.IntegerField(initial=C.DEFAULT_NUM_DAYS)
+    dividends_csv = models.LongStringField(blank=True)
 
 
 class Player(BasePlayer):
@@ -106,6 +114,11 @@ class Player(BasePlayer):
     dividend_cash = models.FloatField(initial=0)
     cash_after_dividend = models.FloatField(initial=0)
     daybreak_snapshot_error = models.LongStringField(blank=True)
+    assigned_initial_cash = models.FloatField(initial=0)
+    assigned_initial_shares = models.FloatField(initial=0)
+    forecast_price_next_day = models.FloatField(blank=True)
+    forecast_confidence_next_day = models.IntegerField(blank=True)
+    forecast_survey_json = models.LongStringField(blank=True)
 
 
 def creating_session(subsession: Subsession):
@@ -151,6 +164,7 @@ def creating_session(subsession: Subsession):
     for idx, group in enumerate(groups):
         treatment = configured_treatments[idx % len(configured_treatments)]
         _set_group_treatment(group, treatment)
+        _assign_player_endowments(group)
     _log(
         "creating_session assigned treatments",
         treatments=[g.treatment for g in groups],
@@ -181,8 +195,107 @@ def _set_group_treatment(group: Group, treatment: str):
     group.group_composition = C.TREATMENT_GROUP_COMPOSITION[treatment_value]
 
 
-def _build_initiate_payload(group: Group, num_players: int):
+def _resolve_num_days(cfg):
+    num_days = max(1, _as_int(cfg.get("num_days", C.DEFAULT_NUM_DAYS), C.DEFAULT_NUM_DAYS))
+    if num_days != C.NUM_ROUNDS:
+        raise RuntimeError(
+            f"Session config num_days={num_days} must equal oTree NUM_ROUNDS={C.NUM_ROUNDS}."
+        )
+    return num_days
+
+
+def _parse_dividends_from_raw(raw_value):
+    if raw_value is None:
+        return []
+    if isinstance(raw_value, str):
+        candidates = [x.strip() for x in raw_value.split(",")]
+    elif isinstance(raw_value, (list, tuple)):
+        candidates = list(raw_value)
+    else:
+        return []
+    values = []
+    for item in candidates:
+        text = str(item).strip()
+        if not text:
+            continue
+        values.append(_as_float(text, 0.0))
+    return values
+
+
+def _load_dividends_from_csv():
+    path = Path(__file__).resolve().parent / "data" / "dividends.csv"
+    if not path.exists():
+        raise RuntimeError(f"Missing dividends CSV at {path}")
+    values = []
+    with path.open("r", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        rows = list(reader)
+    if not rows:
+        return values
+    start_idx = 0
+    first = [c.strip().lower() for c in rows[0]]
+    if first and first[0] in {"dividend_per_share", "dividend", "value"}:
+        start_idx = 1
+    for row in rows[start_idx:]:
+        if not row:
+            continue
+        text = str(row[0]).strip()
+        if not text:
+            continue
+        values.append(_as_float(text, 0.0))
+    return values
+
+
+def _load_dividend_schedule(cfg):
+    configured = _parse_dividends_from_raw(cfg.get("dividends"))
+    if configured:
+        return configured
+    return _load_dividends_from_csv()
+
+
+def _get_group_dividend_schedule(group: Group):
+    raw = str(group.dividends_csv or "").strip()
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return [_as_float(x, 0.0) for x in parsed]
+        except Exception:
+            pass
+    return _load_dividend_schedule(group.session.config)
+
+
+def _parse_endowment_options(raw_value):
+    if not isinstance(raw_value, (list, tuple)):
+        return list(C.DEFAULT_HUMAN_TRADER_ENDOWMENTS)
+    parsed = []
+    for item in raw_value:
+        if isinstance(item, dict):
+            cash = _as_float(item.get("initial_cash", item.get("cash")), 0.0)
+            shares = max(0, _as_int(item.get("initial_stocks", item.get("shares")), 0))
+            parsed.append((cash, shares))
+            continue
+        if isinstance(item, (list, tuple)) and len(item) >= 2:
+            cash = _as_float(item[0], 0.0)
+            shares = max(0, _as_int(item[1], 0))
+            parsed.append((cash, shares))
+    return parsed or list(C.DEFAULT_HUMAN_TRADER_ENDOWMENTS)
+
+
+def _assign_player_endowments(group: Group):
+    options = _parse_endowment_options(group.session.config.get("human_trader_endowments"))
+    players = sorted(group.get_players(), key=lambda p: p.id_in_group)
+    for idx, player in enumerate(players):
+        cash, shares = options[idx % len(options)]
+        player.assigned_initial_cash = float(cash)
+        player.assigned_initial_shares = float(shares)
+        player.participant.vars["assigned_initial_cash"] = player.assigned_initial_cash
+        player.participant.vars["assigned_initial_shares"] = player.assigned_initial_shares
+
+
+def _build_initiate_payload(group: Group, players):
     cfg = group.session.config
+    num_players = len(players)
     hybrid_noise_traders = _as_int(
         cfg.get("hybrid_noise_traders", C.DEFAULT_HYBRID_NOISE_TRADERS),
         C.DEFAULT_HYBRID_NOISE_TRADERS,
@@ -190,12 +303,31 @@ def _build_initiate_payload(group: Group, num_players: int):
     # TEMP: force noise traders in all treatments (including "human_only") for debugging/demo runs.
     # Revert to the composition-based condition once we restore treatment-specific behavior.
     num_noise_traders = max(0, hybrid_noise_traders)
+    num_days = _resolve_num_days(cfg)
     day_duration_minutes = _resolve_day_duration_minutes(cfg, C.DEFAULT_TRADING_DAY_DURATION)
+    dividends = _load_dividend_schedule(cfg)
+    if len(dividends) < num_days:
+        raise RuntimeError(
+            f"Dividend schedule has {len(dividends)} values but num_days={num_days}."
+        )
+    dividends = [float(x) for x in dividends[:num_days]]
+    group.num_days = num_days
+    group.dividends_csv = json.dumps(dividends)
+    human_trader_params = [
+        {
+            "initial_cash": float(_as_float(player.assigned_initial_cash, C.DEFAULT_INITIAL_CASH)),
+            "initial_stocks": int(_as_int(player.assigned_initial_shares, C.DEFAULT_INITIAL_STOCKS)),
+        }
+        for player in players
+    ]
     return dict(
         num_human_traders=num_players,
         num_noise_traders=num_noise_traders,
-        # Backend expects total market duration (minutes). We run one market over all rounds.
-        trading_day_duration=max(1, day_duration_minutes * C.NUM_ROUNDS),
+        num_days=num_days,
+        dividends=dividends,
+        human_trader_params=human_trader_params,
+        # Backend computes total market duration as num_days * trading_day_duration.
+        trading_day_duration=max(1, day_duration_minutes),
         step=_as_int(
             cfg.get("step", C.DEFAULT_STEP),
             C.DEFAULT_STEP,
@@ -253,10 +385,22 @@ def _copy_round_1_trading_state(group: Group):
     group.trading_api_base = round_1_group.trading_api_base
     group.trading_ws_base = round_1_group.trading_ws_base
     group.trading_day_duration_minutes = round_1_group.trading_day_duration_minutes
+    group.num_days = round_1_group.num_days
+    group.dividends_csv = round_1_group.dividends_csv
     group.trading_init_error = _group_init_error(round_1_group)
     for player in group.get_players():
         round_1_player = player.in_round(1)
         player.trader_uuid = round_1_player.trader_uuid or str(player.participant.vars.get("trader_uuid") or "")
+        player.assigned_initial_cash = _as_float(
+            round_1_player.assigned_initial_cash,
+            _as_float(player.participant.vars.get("assigned_initial_cash"), C.DEFAULT_INITIAL_CASH),
+        )
+        player.assigned_initial_shares = _as_float(
+            round_1_player.assigned_initial_shares,
+            _as_float(player.participant.vars.get("assigned_initial_shares"), C.DEFAULT_INITIAL_STOCKS),
+        )
+        player.participant.vars["assigned_initial_cash"] = player.assigned_initial_cash
+        player.participant.vars["assigned_initial_shares"] = player.assigned_initial_shares
         if player.trader_uuid:
             player.participant.vars["trader_uuid"] = player.trader_uuid
 
@@ -274,26 +418,14 @@ def _fetch_trader_info(group: Group, trader_uuid: str):
     return response.get("data") or {}
 
 
-def _apply_dividend_to_trader(group: Group, trader_uuid: str, trading_day: int, dividend_per_share: float):
-    trader_id = str(trader_uuid or "").strip()
-    if not trader_id:
-        return {}
-    cfg = group.session.config
-    timeout_seconds = _as_int(
-        cfg.get("trading_api_timeout_seconds", C.DEFAULT_API_TIMEOUT_SECONDS),
-        C.DEFAULT_API_TIMEOUT_SECONDS,
-    )
-    payload = {
-        "trading_day": int(trading_day),
-        "dividend_per_share": float(dividend_per_share),
-    }
-    url = f"{group.trading_api_base}/trader/{trader_id}/apply_dividend"
-    response = _post_json(url, payload, timeout_seconds)
-    return response.get("data") or {}
-
-
 def _capture_daybreak_state(group: Group):
     completed_day = int(group.subsession.round_number)
+    dividends = _get_group_dividend_schedule(group)
+    if len(dividends) < completed_day:
+        raise RuntimeError(
+            f"Dividend schedule has {len(dividends)} values but day {completed_day} was requested."
+        )
+    dividend_per_share = _as_float(dividends[completed_day - 1], 0.0)
     for player in group.get_players():
         trader_id = str(player.trader_uuid or "").strip()
         if not trader_id:
@@ -311,29 +443,11 @@ def _capture_daybreak_state(group: Group):
                 trader_uuid=trader_id,
                 error=snapshot_error,
             )
-        shares = _as_float(snapshot.get("shares", 0), 0.0)
-        dividend_per_share = float(random.choice(C.DIVIDEND_VALUES))
-        apply_result = _apply_dividend_to_trader(
-            group=group,
-            trader_uuid=trader_id,
-            trading_day=completed_day,
-            dividend_per_share=dividend_per_share,
-        )
-
-        player.current_cash = _as_float(apply_result.get("cash_before_dividend", snapshot.get("cash", 0)), 0.0)
-        player.num_shares = _as_float(apply_result.get("shares", shares), shares)
-        player.dividend_per_share = _as_float(
-            apply_result.get("dividend_per_share", dividend_per_share),
-            dividend_per_share,
-        )
-        player.dividend_cash = _as_float(
-            apply_result.get("dividend_cash", player.num_shares * player.dividend_per_share),
-            0.0,
-        )
-        player.cash_after_dividend = _as_float(
-            apply_result.get("cash_after_dividend", player.current_cash + player.dividend_cash),
-            player.current_cash + player.dividend_cash,
-        )
+        player.num_shares = _as_float(snapshot.get("shares", 0), 0.0)
+        player.dividend_per_share = dividend_per_share
+        player.dividend_cash = _as_float(player.num_shares * player.dividend_per_share, 0.0)
+        player.cash_after_dividend = _as_float(snapshot.get("cash", 0), 0.0)
+        player.current_cash = _as_float(player.cash_after_dividend - player.dividend_cash, 0.0)
         player.daybreak_snapshot_error = snapshot_error
 
         _log(
@@ -347,7 +461,6 @@ def _capture_daybreak_state(group: Group):
             dividend_cash=player.dividend_cash,
             cash_after_dividend=player.cash_after_dividend,
             snapshot_error=snapshot_error,
-            apply_result=apply_result,
         )
 
 
@@ -393,7 +506,7 @@ def after_all_players_arrive(group: Group):
     )
 
     try:
-        payload = _build_initiate_payload(group, num_players)
+        payload = _build_initiate_payload(group, players)
         _log("after_all_players_arrive built payload", payload=payload)
         response = _post_json(f"{http_base}/trading/initiate", payload, timeout_seconds)
         _log("after_all_players_arrive received response", response=response)
@@ -612,6 +725,9 @@ class TradePage(Page):
 
 
 class DayBreak(Page):
+    form_model = "player"
+    form_fields = ["forecast_price_next_day", "forecast_confidence_next_day", "forecast_survey_json"]
+
     @staticmethod
     def is_displayed(player: Player):
         return (
@@ -634,13 +750,68 @@ class DayBreak(Page):
             dividend_cash=player.dividend_cash,
             cash_after_dividend=player.cash_after_dividend,
             snapshot_error=player.daybreak_snapshot_error,
+            forecast_price_next_day=player.field_maybe_none("forecast_price_next_day"),
+            forecast_confidence_next_day=player.field_maybe_none("forecast_confidence_next_day"),
         )
+
+    @staticmethod
+    def error_message(player: Player, values):
+        price = values.get("forecast_price_next_day")
+        confidence = values.get("forecast_confidence_next_day")
+        if price is None:
+            return "Please enter a point forecast for next day closing price."
+        if float(price) < 0:
+            return "Forecasted price must be non-negative."
+        if confidence is None:
+            return "Please rate your confidence."
+        try:
+            conf_val = int(confidence)
+        except (TypeError, ValueError):
+            return "Confidence must be an integer from 1 to 5."
+        if conf_val < 1 or conf_val > 5:
+            return "Confidence must be between 1 and 5."
+        return None
 
 
 class Results(Page):
     @staticmethod
     def is_displayed(player: Player):
         return player.round_number == C.NUM_ROUNDS
+
+    @staticmethod
+    def vars_for_template(player: Player):
+        _copy_round_1_trading_state(player.group)
+        final_cash = _as_float(player.field_maybe_none("cash_after_dividend"), 0.0)
+        total_shares = _as_float(player.field_maybe_none("num_shares"), 0.0)
+        available_shares = total_shares
+        reserved_shares = 0.0
+        snapshot_error = ""
+
+        trader_id = str(player.trader_uuid or "").strip()
+        if trader_id and player.group.trading_api_base:
+            try:
+                snapshot = _fetch_trader_info(player.group, trader_id)
+                final_cash = _as_float(snapshot.get("cash", final_cash), final_cash)
+                total_shares = _as_float(snapshot.get("shares", total_shares), total_shares)
+                available_shares = _as_float(snapshot.get("available_shares", available_shares), available_shares)
+                reserved_shares = _as_float(snapshot.get("reserved_shares", reserved_shares), reserved_shares)
+            except Exception as exc:
+                snapshot_error = str(exc)
+
+        initial_cash = _as_float(player.assigned_initial_cash, C.DEFAULT_INITIAL_CASH)
+        delta_cash = final_cash - initial_cash
+
+        return dict(
+            market_number=1,
+            total_days=C.NUM_ROUNDS,
+            final_cash=final_cash,
+            initial_cash=initial_cash,
+            delta_cash=delta_cash,
+            final_total_shares=total_shares,
+            final_available_shares=available_shares,
+            final_reserved_shares=reserved_shares,
+            snapshot_error=snapshot_error,
+        )
 
 
 page_sequence = [

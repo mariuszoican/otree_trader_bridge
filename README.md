@@ -3,7 +3,11 @@
 This folder is a standalone oTree project with one app (`trader_bridge_app`) that:
 
 1. Waits for all players in a group.
-2. Calls the external trading backend (`POST /trading/initiate`) with `num_human_traders = group size`.
+2. Calls the external trading backend (`POST /trading/initiate`) with:
+   - `num_human_traders = group size`
+   - `num_days = NUM_ROUNDS`
+   - per-day `dividends` array (from `trader_bridge_app/data/dividends.csv`)
+   - per-human `human_trader_params` (`initial_cash`, `initial_stocks`)
 3. Stores one `trader_uuid` per `Player` in the oTree database.
 4. Renders a websocket-based trading page using `js_vars`.
 

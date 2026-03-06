@@ -5,24 +5,301 @@
 Day {{ completed_day }} Complete
 {% endblock %}
 
+{% block styles %}
+<link href="https://unpkg.com/survey-core/defaultV2.min.css" rel="stylesheet" />
+<style>
+  :root {
+    --db-ink: #102a43;
+    --db-muted: #486581;
+    --db-panel: #ffffff;
+    --db-border: #d9e2ec;
+    --db-accent: #0f766e;
+    --db-accent-soft: #ccfbf1;
+    --db-warm: #f59e0b;
+    --db-bg-1: #f8fafc;
+    --db-bg-2: #ecfeff;
+  }
+
+  body,
+  .otree-body {
+    background:
+      radial-gradient(circle at 15% 0%, rgba(15, 118, 110, 0.12), transparent 30%),
+      radial-gradient(circle at 85% 10%, rgba(245, 158, 11, 0.16), transparent 28%),
+      linear-gradient(140deg, var(--db-bg-1), var(--db-bg-2));
+    font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+  }
+
+  .daybreak-shell {
+    max-width: 960px;
+    margin: 0 auto;
+    color: var(--db-ink);
+  }
+
+  .daybreak-hero {
+    background: var(--db-panel);
+    border: 1px solid var(--db-border);
+    border-radius: 18px;
+    padding: 20px 22px;
+    box-shadow: 0 12px 28px rgba(16, 42, 67, 0.08);
+    animation: riseIn 0.45s ease-out;
+  }
+
+  .daybreak-kicker {
+    margin: 0 0 6px 0;
+    color: var(--db-accent);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.76rem;
+    font-weight: 700;
+  }
+
+  .daybreak-title {
+    margin: 0;
+    font-size: 1.75rem;
+    line-height: 1.12;
+  }
+
+  .daybreak-subtitle {
+    margin: 8px 0 0 0;
+    color: var(--db-muted);
+    font-size: 1rem;
+  }
+
+  .daybreak-grid {
+    margin-top: 16px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .daybreak-stat {
+    background: #fff;
+    border: 1px solid var(--db-border);
+    border-radius: 14px;
+    padding: 12px 14px;
+  }
+
+  .daybreak-stat-label {
+    margin: 0;
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--db-muted);
+    font-weight: 700;
+  }
+
+  .daybreak-stat-value {
+    margin: 6px 0 0 0;
+    font-size: 1.28rem;
+    font-weight: 700;
+  }
+
+  .daybreak-highlight {
+    margin-top: 14px;
+    padding: 14px 16px;
+    border-radius: 14px;
+    background: linear-gradient(120deg, rgba(15, 118, 110, 0.13), rgba(245, 158, 11, 0.12));
+    border: 1px solid rgba(15, 118, 110, 0.22);
+    font-weight: 600;
+  }
+
+  .daybreak-warning {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid #fed7aa;
+    background: #fff7ed;
+    color: #9a3412;
+    font-size: 0.95rem;
+  }
+
+  .survey-card {
+    margin-top: 16px;
+    background: var(--db-panel);
+    border: 1px solid var(--db-border);
+    border-radius: 18px;
+    padding: 18px 18px 14px 18px;
+    box-shadow: 0 12px 26px rgba(16, 42, 67, 0.06);
+    animation: riseIn 0.55s ease-out;
+  }
+
+  .survey-heading {
+    margin: 0 0 4px 0;
+    font-size: 1.15rem;
+    font-weight: 700;
+  }
+
+  .survey-help {
+    margin: 0;
+    color: var(--db-muted);
+    font-size: 0.95rem;
+  }
+
+  #surveyContainer {
+    margin-top: 14px;
+  }
+
+  .sd-root-modern {
+    --sjs-primary-backcolor: #0f766e;
+    --sjs-primary-forecolor: #ffffff;
+    --sjs-general-backcolor: #ffffff;
+    --sjs-question-title-color: #102a43;
+  }
+
+  @media (max-width: 720px) {
+    .daybreak-grid {
+      grid-template-columns: 1fr;
+    }
+    .daybreak-title {
+      font-size: 1.45rem;
+    }
+  }
+
+  @keyframes riseIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+</style>
+{% endblock %}
+
 {% block content %}
-<p>
-Trading is paused. You finished day {{ completed_day }} in market {{ market_number }}.
-</p>
-<p>
-Current snapshot: cash = <strong>{{ current_cash }}</strong>, shares = <strong>{{ num_shares }}</strong>.
-</p>
-<p>
-Dividend per share = <strong>{{ dividend }}</strong>, dividend cash = <strong>{{ dividend_cash }}</strong>.
-</p>
-<p>
-Cash after dividend = <strong>{{ cash_after_dividend }}</strong>.
-</p>
-{% if snapshot_error %}
-  <p><em>Snapshot warning: {{ snapshot_error }}</em></p>
-{% endif %}
-<p>
-Click Next to continue to the waiting room. Trading day {{ next_day }} will start once everyone arrives.
-</p>
-{{ next_button }}
+<div class="daybreak-shell">
+  <section class="daybreak-hero">
+    <p class="daybreak-kicker">Market {{ market_number }}</p>
+    <h2 class="daybreak-title">Day {{ completed_day }} Closed</h2>
+    <p class="daybreak-subtitle">
+      Dividend is applied and your position snapshot is ready before Day {{ next_day }} starts.
+    </p>
+
+    <div class="daybreak-grid">
+      <article class="daybreak-stat">
+        <p class="daybreak-stat-label">Cash Before Dividend</p>
+        <p class="daybreak-stat-value">${{ current_cash }}</p>
+      </article>
+      <article class="daybreak-stat">
+        <p class="daybreak-stat-label">Shares Held</p>
+        <p class="daybreak-stat-value">{{ num_shares }}</p>
+      </article>
+      <article class="daybreak-stat">
+        <p class="daybreak-stat-label">Dividend Per Share</p>
+        <p class="daybreak-stat-value">${{ dividend_per_share  }}</p>
+      </article>
+      <article class="daybreak-stat">
+        <p class="daybreak-stat-label">Dividend Cash</p>
+        <p class="daybreak-stat-value">${{ dividend_cash }}</p>
+      </article>
+    </div>
+
+    <div class="daybreak-highlight">
+      Cash after dividend: ${{ cash_after_dividend  }}
+    </div>
+
+    {% if snapshot_error %}
+      <div class="daybreak-warning">
+        Snapshot warning: {{ snapshot_error }}
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="survey-card">
+    <h3 class="survey-heading">Forecast for Day {{ next_day }}</h3>
+    <p class="survey-help">
+      Submit your expected end-of-day price and confidence. Trading resumes once all participants complete this.
+    </p>
+    <div id="surveyContainer"></div>
+  </section>
+</div>
+
+<input
+  type="hidden"
+  id="id_forecast_price_next_day"
+  name="forecast_price_next_day"
+  value="{{ forecast_price_next_day }}"
+/>
+<input
+  type="hidden"
+  id="id_forecast_confidence_next_day"
+  name="forecast_confidence_next_day"
+  value="{{ forecast_confidence_next_day }}"
+/>
+<input
+  type="hidden"
+  id="id_forecast_survey_json"
+  name="forecast_survey_json"
+  value=""
+/>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script src="https://unpkg.com/survey-jquery/survey.jquery.min.js"></script>
+<script>
+  (function () {
+    const surveyJSON = {
+      showPrevButton: false,
+      showQuestionNumbers: "off",
+      showCompletedPage: false,
+      completeText: "Submit Forecast",
+      pages: [
+        {
+          name: "forecast_page",
+          elements: [
+            {
+              type: "text",
+              name: "forecast_price_next_day",
+              title: "Forecast the end-of-day stock price for Day {{ next_day }}",
+              isRequired: true,
+              inputType: "number",
+              min: 0,
+              step: 0.01,
+            },
+            {
+              type: "rating",
+              name: "forecast_confidence_next_day",
+              title: "How confident are you in this forecast?",
+              isRequired: true,
+              rateMin: 1,
+              rateMax: 5,
+              minRateDescription: "1 (Not confident)",
+              maxRateDescription: "5 (Very confident)",
+            },
+          ],
+        },
+      ],
+    };
+
+    const survey = new Survey.Model(surveyJSON);
+    Survey.StylesManager.applyTheme("defaultV2");
+    survey.css = survey.css || {};
+    survey.css.root = "sd-root-modern";
+
+    const prefilledPrice = document.getElementById("id_forecast_price_next_day").value;
+    const prefilledConfidence = document.getElementById("id_forecast_confidence_next_day").value;
+    if (prefilledPrice !== "") {
+      survey.setValue("forecast_price_next_day", Number(prefilledPrice));
+    }
+    if (prefilledConfidence !== "") {
+      survey.setValue("forecast_confidence_next_day", Number(prefilledConfidence));
+    }
+
+    survey.onComplete.add(function (result) {
+      const data = result.data || {};
+      const form = document.getElementById("form") || document.querySelector("form");
+      document.getElementById("id_forecast_price_next_day").value = data.forecast_price_next_day;
+      document.getElementById("id_forecast_confidence_next_day").value = data.forecast_confidence_next_day;
+      document.getElementById("id_forecast_survey_json").value = JSON.stringify(data);
+      if (form) {
+        form.submit();
+      }
+    });
+
+    $("#surveyContainer").Survey({ model: survey });
+  })();
+</script>
 {% endblock %}
