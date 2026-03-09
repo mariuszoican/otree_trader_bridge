@@ -51,7 +51,6 @@ class C(BaseConstants):
         DEFAULT_INITIAL_STOCKS (int): Initial stock allocation per player.
         DEFAULT_ALERT_STREAK_FREQUENCY (int): Frequency threshold for alert notifications.
         DEFAULT_ALERT_WINDOW_SIZE (int): Window size for calculating alert metrics.
-        DEFAULT_ALLOW_SELF_TRADE (bool): Whether self-trading is permitted.
         DEFAULT_GROUP_SIZE (int): Number of players per trading group.
         DEFAULT_HYBRID_NOISE_TRADERS (int): Number of noise trader agents in hybrid treatment groups.
 
@@ -77,7 +76,6 @@ class C(BaseConstants):
     DEFAULT_INITIAL_STOCKS = 20
     DEFAULT_ALERT_STREAK_FREQUENCY = 3
     DEFAULT_ALERT_WINDOW_SIZE = 5
-    DEFAULT_ALLOW_SELF_TRADE = True
     DEFAULT_GROUP_SIZE = PLAYERS_PER_GROUP
     DEFAULT_HYBRID_NOISE_TRADERS = 1
     DEFAULT_FORECAST_BONUS_AMOUNT = 1

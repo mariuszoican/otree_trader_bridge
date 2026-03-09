@@ -395,7 +395,6 @@ def _build_initiate_payload(group: Group, players):
             C.DEFAULT_ALERT_STREAK_FREQUENCY,
         ),
         alert_window_size=_as_int(cfg.get("alert_window_size", C.DEFAULT_ALERT_WINDOW_SIZE), C.DEFAULT_ALERT_WINDOW_SIZE),
-        allow_self_trade=_as_bool(cfg.get("allow_self_trade", C.DEFAULT_ALLOW_SELF_TRADE), C.DEFAULT_ALLOW_SELF_TRADE),
     )
 
 

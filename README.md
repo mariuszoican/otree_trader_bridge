@@ -42,7 +42,6 @@ SESSION_CONFIGS = [
         initial_stocks=20,
         alert_streak_frequency=3,
         alert_window_size=5,
-        allow_self_trade=True,
     ),
 ]
 ```
