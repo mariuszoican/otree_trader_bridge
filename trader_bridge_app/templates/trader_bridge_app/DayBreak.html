@@ -127,6 +127,12 @@ Day Break
     animation: riseIn 0.55s ease-out;
   }
 
+  .daybreak-actions {
+    margin-top: 18px;
+    display: flex;
+    justify-content: flex-end;
+  }
+
   .survey-heading {
     margin: 0 0 4px 0;
     font-size: 1.15rem;
@@ -222,6 +228,10 @@ Day Break
     </p>
     <div id="surveyContainer"></div>
   </section>
+
+  <div class="daybreak-actions">
+    {{ next_button }}
+  </div>
 </div>
 
 {% if not is_final_day %}
@@ -305,10 +315,10 @@ Day Break
     }
 
     const surveyJSON = {
+      showNavigationButtons: false,
       showPrevButton: false,
       showQuestionNumbers: "off",
       showCompletedPage: false,
-      completeText: "Submit Forecast",
       pages: [
         {
           name: "forecast_page",
@@ -353,18 +363,23 @@ Day Break
       survey.setValue("forecast_confidence_next_day", prefilledConfidence);
     }
 
-    survey.onComplete.add(function (result) {
-      const data = result.data || {};
-      const form = document.getElementById("form") || document.querySelector("form");
-      document.getElementById("id_forecast_price_next_day").value = data.forecast_price_next_day;
-      document.getElementById("id_forecast_confidence_next_day").value = data.forecast_confidence_next_day;
-      document.getElementById("id_forecast_survey_json").value = JSON.stringify(data);
-      if (form) {
-        form.submit();
-      }
-    });
-
     $("#surveyContainer").Survey({ model: survey });
+
+    const form = document.getElementById("form") || document.querySelector("form");
+    if (form) {
+      form.addEventListener("submit", function (event) {
+        const valid = survey.validate();
+        if (!valid) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+        const data = survey.data || {};
+        document.getElementById("id_forecast_price_next_day").value = data.forecast_price_next_day ?? "";
+        document.getElementById("id_forecast_confidence_next_day").value = data.forecast_confidence_next_day ?? "";
+        document.getElementById("id_forecast_survey_json").value = JSON.stringify(data);
+      });
+    }
   })();
 </script>
 {% endblock %}
