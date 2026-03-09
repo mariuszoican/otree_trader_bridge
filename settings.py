@@ -95,6 +95,7 @@ SESSION_CONFIGS = [
 SESSION_CONFIG_DEFAULTS = dict(
     real_world_currency_per_point=1.00,
     participation_fee=0.00,
+    fee_per_correct_answer=1,
     forecast_bonus_threshold_pct=1,
     dividend_values=[0, 4, 8, 20],
     doc="",

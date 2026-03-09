@@ -399,6 +399,7 @@ class Payoff(Page):
         hl_payoff = player.participant.vars.get("payoff_for_holt_laury", cu(0))
         nonlottery_points = trade_payoff + quiz_payoff + bonus_total
         total_points = nonlottery_points + hl_payoff
+        fee_per_correct = player.session.config.get("fee_per_correct_answer", 1)
         exchange_rate = player.session.config.get("real_world_currency_per_point", 1)
         participation_fee = player.session.config.get("participation_fee", 0)
         cash_bonus = total_points * exchange_rate
@@ -415,6 +416,7 @@ class Payoff(Page):
             nonlottery_points=nonlottery_points,
             cash_bonus=cash_bonus,
             total_real=total_real,
+            fee_per_correct=fee_per_correct,
             exchange_rate=exchange_rate,
             participation_fee=participation_fee,
             paid_day_label=paid_day_label,
