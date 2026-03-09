@@ -386,6 +386,10 @@ def _build_initiate_payload(group: Group, players):
             cfg.get("max_orders_per_minute", C.DEFAULT_MAX_ORDERS_PER_MINUTE),
             C.DEFAULT_MAX_ORDERS_PER_MINUTE,
         ),
+        noise_trader_start_second=_as_int(
+            cfg.get("noise_trader_start_second", C.DEFAULT_NOISE_TRADER_START_SECOND),
+            C.DEFAULT_NOISE_TRADER_START_SECOND,
+        ),
         initial_midpoint=float(cfg.get("initial_midpoint", C.DEFAULT_INITIAL_MIDPOINT)),
         initial_spread=float(cfg.get("initial_spread", C.DEFAULT_INITIAL_SPREAD)),
         initial_cash=float(cfg.get("initial_cash", C.DEFAULT_INITIAL_CASH)),
