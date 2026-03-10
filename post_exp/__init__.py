@@ -470,7 +470,7 @@ class FinalForProlific(Page):
 
 
 page_sequence = [
-    HoltLaury,
+#    HoltLaury, // Comment out Holt-Laury test
     literacyQuiz,
     Demographics,
     Payoff,
