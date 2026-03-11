@@ -4,6 +4,7 @@ import os
 import random
 import traceback
 
+from otree.api import Currency as cu
 from otree.api import WaitPage
 from otree.api import Page as oTreePage
 
@@ -229,6 +230,7 @@ def creating_session(subsession: Subsession):
             player.participant.vars["market_design"] = group.market_design
             player.participant.vars["group_composition"] = group.group_composition
             _assign_payable_market(player)
+            player.participant.vars.setdefault("cumulative_bonuses", cu(0))
         _assign_player_endowments(group)
     _log(
         "creating_session assigned treatments",
@@ -483,6 +485,21 @@ def _pause_trading_session(group: Group):
     return response.get("data") or {}
 
 
+def _fetch_trading_session_info(group: Group):
+    if not group.trading_session_uuid or not group.trading_api_base:
+        return {}
+    cfg = group.session.config
+    timeout_seconds = _as_int(
+        cfg.get("trading_api_timeout_seconds", C.DEFAULT_API_TIMEOUT_SECONDS),
+        C.DEFAULT_API_TIMEOUT_SECONDS,
+    )
+    response = _get_json(
+        f"{group.trading_api_base}/trading_session/{group.trading_session_uuid}",
+        timeout_seconds,
+    )
+    return response.get("data") or {}
+
+
 def _resume_trading_session(group: Group):
     if not group.trading_session_uuid or not group.trading_api_base:
         raise RuntimeError("Cannot resume: missing trading session UUID or API base.")
@@ -498,6 +515,53 @@ def _resume_trading_session(group: Group):
 
 def _group_init_error(group: Group) -> str:
     return str(group.field_maybe_none("trading_init_error") or "")
+
+
+def _score_previous_round_forecasts(group: Group, closing_price):
+    current_round = int(group.subsession.round_number)
+    if current_round <= 1:
+        return
+    previous_round_number = current_round - 1
+    if _market_number_for_round(previous_round_number) != _market_number_for_round(current_round):
+        return
+    num_days = max(1, _as_int(group.field_maybe_none("num_days"), C.DAYS_PER_MARKET))
+    if not _should_elicit_forecast(previous_round_number, num_days):
+        return
+
+    forecast_bonus_amount = cu(
+        _as_float(
+            group.session.config.get("forecast_bonus_amount", C.DEFAULT_FORECAST_BONUS_AMOUNT),
+            C.DEFAULT_FORECAST_BONUS_AMOUNT,
+        )
+    )
+    forecast_bonus_threshold_pct = _as_float(
+        group.session.config.get(
+            "forecast_bonus_threshold_pct",
+            C.DEFAULT_FORECAST_BONUS_THRESHOLD_PCT,
+        ),
+        C.DEFAULT_FORECAST_BONUS_THRESHOLD_PCT,
+    )
+
+    for player in group.get_players():
+        forecast_round_player = player.in_round(previous_round_number)
+        if bool(forecast_round_player.field_maybe_none("forecast_bonus_scored")):
+            continue
+
+        forecast_round_player.realized_next_day_closing_price = closing_price
+        awarded_bonus = cu(0)
+        forecast_price = forecast_round_player.field_maybe_none("forecast_price_next_day")
+
+        if closing_price is not None and forecast_price not in (None, ""):
+            forecast_price = _as_float(forecast_price, 0.0)
+            threshold = abs(float(closing_price)) * (forecast_bonus_threshold_pct / 100.0)
+            if abs(forecast_price - float(closing_price)) <= threshold:
+                awarded_bonus = forecast_bonus_amount
+
+        forecast_round_player.forecast_bonus_earned = awarded_bonus
+        forecast_round_player.forecast_bonus_scored = True
+        cumulative_bonuses = cu(player.participant.vars.get("cumulative_bonuses", cu(0)))
+        cumulative_bonuses += awarded_bonus
+        player.participant.vars["cumulative_bonuses"] = cumulative_bonuses
 
 
 def _copy_market_start_trading_state(group: Group):
@@ -547,10 +611,19 @@ def _fetch_trader_info(group: Group, trader_uuid: str):
     return response.get("data") or {}
 
 
-def _capture_daybreak_state(group: Group):
+def _capture_daybreak_state(group: Group, observed_last_transaction_price=None):
     completed_day = int(group.subsession.round_number)
     completed_market = _market_number_for_round(completed_day)
     is_market_close = _is_last_round_of_market(completed_day)
+    if observed_last_transaction_price is None:
+        try:
+            session_info = _fetch_trading_session_info(group)
+        except Exception:
+            session_info = {}
+        observed_last_transaction_price = session_info.get("last_transaction_price")
+    group.observed_last_transaction_price = observed_last_transaction_price
+    group.closing_price = observed_last_transaction_price
+    _score_previous_round_forecasts(group, group.closing_price)
     dividends = _get_group_dividend_schedule(group)
     if len(dividends) < completed_day:
         raise RuntimeError(
@@ -597,6 +670,8 @@ def _capture_daybreak_state(group: Group):
             "_capture_daybreak_state stored player daybreak values",
             round_number=completed_day,
             market_number=completed_market,
+            observed_last_transaction_price=group.observed_last_transaction_price,
+            closing_price=group.closing_price,
             player_id=player.id_in_subsession,
             trader_uuid=trader_id,
             current_cash=player.current_cash,
@@ -761,7 +836,10 @@ def pause_trading_after_wait(group: Group):
         return
     try:
         result = _pause_trading_session(group)
-        _capture_daybreak_state(group)
+        _capture_daybreak_state(
+            group,
+            observed_last_transaction_price=result.get("last_transaction_price"),
+        )
         _log(
             "pause_trading_after_wait succeeded",
             round_number=group.subsession.round_number,

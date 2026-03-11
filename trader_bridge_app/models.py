@@ -20,6 +20,8 @@ class Group(BaseGroup):
     noise_trader_present = models.BooleanField(initial=False)
     num_days = models.IntegerField(initial=C.DEFAULT_NUM_DAYS)
     dividends_csv = models.LongStringField(blank=True)
+    observed_last_transaction_price = models.FloatField(blank=True)
+    closing_price = models.FloatField(blank=True)
 
 
 class Player(BasePlayer):
@@ -35,3 +37,6 @@ class Player(BasePlayer):
     forecast_price_next_day = models.FloatField(blank=True)
     forecast_confidence_next_day = models.IntegerField(blank=True)
     forecast_survey_json = models.LongStringField(blank=True)
+    realized_next_day_closing_price = models.FloatField(blank=True)
+    forecast_bonus_earned = models.CurrencyField(initial=0)
+    forecast_bonus_scored = models.BooleanField(initial=False)
