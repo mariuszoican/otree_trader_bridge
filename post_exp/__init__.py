@@ -62,6 +62,15 @@ def load_quiz_answer_key():
 
 
 def resolve_trade_payoff_from_selected_market(participant, payable_market, num_days):
+    stored_market_payoffs = participant.vars.get("market_cash_after_dividend") or {}
+    for key in (payable_market, str(payable_market)):
+        if key not in stored_market_payoffs:
+            continue
+        try:
+            return cu(stored_market_payoffs[key])
+        except Exception:
+            return None
+
     target_round = max(1, int(payable_market)) * max(1, int(num_days))
     try:
         all_players = participant.get_players()
@@ -83,6 +92,29 @@ def resolve_trade_payoff_from_selected_market(participant, payable_market, num_d
         except Exception:
             return None
     return None
+
+
+def assign_total_payoff(player):
+    trade_payoff = player.participant.vars.get(
+        "payoff_for_trade",
+        player.payoff_for_trade or cu(0),
+    )
+    quiz_payoff = player.participant.vars.get(
+        "payoff_for_quiz",
+        player.payoff_for_quiz or cu(0),
+    )
+    bonus_total = player.participant.vars.get("cumulative_bonuses", cu(0))
+    total = trade_payoff + quiz_payoff + bonus_total
+    player.payoff_for_trade = trade_payoff
+    player.payoff = total
+    player.participant.payoff = total
+    player.participant.vars["total_bonus"] = total
+    return dict(
+        trade_payoff=trade_payoff,
+        quiz_payoff=quiz_payoff,
+        bonus_total=bonus_total,
+        total=total,
+    )
 
 
 def process_survey_data(player, survey_results):
@@ -191,13 +223,17 @@ def creating_session(subsession):
                 payable_market = random.randint(1, num_markets)
         payable_market = max(1, min(int(payable_market), num_markets))
         p.payable_market = payable_market
-        trade_payoff = resolve_trade_payoff_from_selected_market(
-            p.participant,
-            payable_market=payable_market,
-            num_days=num_days,
-        )
-        if trade_payoff is None:
-            trade_payoff = p.participant.vars.get("payoff_for_trade", cu(0))
+        stored_trade_payoff = p.participant.vars.get("payoff_for_trade")
+        if stored_trade_payoff is not None:
+            trade_payoff = cu(stored_trade_payoff)
+        else:
+            trade_payoff = resolve_trade_payoff_from_selected_market(
+                p.participant,
+                payable_market=payable_market,
+                num_days=num_days,
+            )
+            if trade_payoff is None:
+                trade_payoff = cu(0)
         p.payoff_for_trade = trade_payoff
         bonus_total = p.participant.vars.get("cumulative_bonuses", cu(0))
         p.participant.vars.setdefault("cumulative_bonuses", bonus_total)
@@ -348,10 +384,11 @@ class Payoff(Page):
 
     @staticmethod
     def vars_for_template(player: Player):
-        trade_payoff = player.participant.vars.get("payoff_for_trade", cu(0))
-        quiz_payoff = player.payoff_for_quiz or cu(0)
-        bonus_total = player.participant.vars.get("cumulative_bonuses", cu(0))
-        total_points = trade_payoff + quiz_payoff + bonus_total
+        payoff_parts = assign_total_payoff(player)
+        trade_payoff = payoff_parts["trade_payoff"]
+        quiz_payoff = payoff_parts["quiz_payoff"]
+        bonus_total = payoff_parts["bonus_total"]
+        total_points = payoff_parts["total"]
         fee_per_correct = player.session.config.get("fee_per_correct_answer", 1)
         exchange_rate = player.session.config.get("real_world_currency_per_point", 1)
         participation_fee = player.session.config.get("participation_fee", 0)
@@ -374,16 +411,13 @@ class Payoff(Page):
 
     @staticmethod
     def before_next_page(player: Player, timeout_happened):
-        trade_payoff = player.participant.vars.get("payoff_for_trade", cu(0))
-        quiz_payoff = player.participant.vars.get("payoff_for_quiz", cu(0))
-        bonus_total = player.participant.vars.get("cumulative_bonuses", cu(0))
+        payoff_parts = assign_total_payoff(player)
+        trade_payoff = payoff_parts["trade_payoff"]
+        quiz_payoff = payoff_parts["quiz_payoff"]
+        bonus_total = payoff_parts["bonus_total"]
         print(
             f"INNER COMPONENTS: trade {trade_payoff}, quiz {quiz_payoff}, bonus {bonus_total}"
         )
-        total = trade_payoff + quiz_payoff + bonus_total
-        player.payoff = total
-        player.participant.payoff = total
-        player.participant.vars["total_bonus"] = total
 
 
 class PilotFeedback(SurveyJSPage):

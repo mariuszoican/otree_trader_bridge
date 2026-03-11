@@ -228,6 +228,7 @@ def creating_session(subsession: Subsession):
             player.participant.vars["treatment"] = group.treatment
             player.participant.vars["market_design"] = group.market_design
             player.participant.vars["group_composition"] = group.group_composition
+            _assign_payable_market(player)
         _assign_player_endowments(group)
     _log(
         "creating_session assigned treatments",
@@ -311,6 +312,19 @@ def _is_first_round_of_market(round_number):
 
 def _is_last_round_of_market(round_number):
     return _day_in_market(round_number) == C.DAYS_PER_MARKET
+
+
+def _assign_payable_market(player: Player):
+    num_markets = max(
+        1,
+        _as_int(player.session.config.get("num_markets", C.NUM_MARKETS), C.NUM_MARKETS),
+    )
+    payable_market = player.participant.vars.get("payable_market")
+    if payable_market is None:
+        payable_market = random.randint(1, num_markets)
+    payable_market = max(1, min(_as_int(payable_market, 1), num_markets))
+    player.participant.vars["payable_market"] = payable_market
+    return payable_market
 
 
 def _forecast_days(n_days):
@@ -535,6 +549,8 @@ def _fetch_trader_info(group: Group, trader_uuid: str):
 
 def _capture_daybreak_state(group: Group):
     completed_day = int(group.subsession.round_number)
+    completed_market = _market_number_for_round(completed_day)
+    is_market_close = _is_last_round_of_market(completed_day)
     dividends = _get_group_dividend_schedule(group)
     if len(dividends) < completed_day:
         raise RuntimeError(
@@ -564,10 +580,23 @@ def _capture_daybreak_state(group: Group):
         player.cash_after_dividend = _as_float(snapshot.get("cash", 0), 0.0)
         player.current_cash = _as_float(player.cash_after_dividend - player.dividend_cash, 0.0)
         player.daybreak_snapshot_error = snapshot_error
+        if is_market_close:
+            market_cash_after_dividend = dict(
+                player.participant.vars.get("market_cash_after_dividend") or {}
+            )
+            market_cash_after_dividend[str(completed_market)] = player.cash_after_dividend
+            player.participant.vars["market_cash_after_dividend"] = market_cash_after_dividend
+            payable_market = _as_int(
+                player.participant.vars.get("payable_market"),
+                completed_market,
+            )
+            if payable_market == completed_market:
+                player.participant.vars["payoff_for_trade"] = player.cash_after_dividend
 
         _log(
             "_capture_daybreak_state stored player daybreak values",
             round_number=completed_day,
+            market_number=completed_market,
             player_id=player.id_in_subsession,
             trader_uuid=trader_id,
             current_cash=player.current_cash,
