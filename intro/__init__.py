@@ -144,6 +144,22 @@ def _format_endowment_options_text(options):
     return _natural_join(entries)
 
 
+def _forecast_days(n_days):
+    total_days = max(1, _as_int(n_days, C.DEFAULT_DAYS_PER_MARKET))
+    if total_days <= 3:
+        return [1]
+    return list(range(3, total_days, 3))
+
+
+def _forecast_schedule_text(n_days):
+    total_days = max(1, _as_int(n_days, C.DEFAULT_DAYS_PER_MARKET))
+    if total_days == 1:
+        return "This market has one period, so no forecast is collected."
+    forecast_days = _forecast_days(total_days)
+    period_label = "period" if len(forecast_days) == 1 else "periods"
+    return f"You submit forecasts only after {period_label} {_natural_join(forecast_days)}."
+
+
 def _experiment_params(player: "Player"):
     cfg = player.session.config
     num_markets = max(1, _as_int(cfg.get("num_markets", C.DEFAULT_NUM_MARKETS), C.DEFAULT_NUM_MARKETS))
@@ -219,6 +235,7 @@ def _experiment_params(player: "Player"):
         payoff_period=days_per_market,
         exchange_rate_text=_format_number(exchange_rate),
         quiz_bonus_per_correct_text=_format_number(quiz_bonus_per_correct),
+        forecast_schedule_text=_forecast_schedule_text(days_per_market),
     )
 
 
