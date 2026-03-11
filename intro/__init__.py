@@ -169,7 +169,7 @@ def _experiment_params(player: "Player"):
         cfg.get("forecast_bonus_threshold_pct", C.DEFAULT_FORECAST_BONUS_THRESHOLD_PCT),
         C.DEFAULT_FORECAST_BONUS_THRESHOLD_PCT,
     )
-    forecast_bonus_wrong_pct = forecast_bonus_threshold_pct + 4.0
+    forecast_bonus_wrong_pct = forecast_bonus_threshold_pct - 4.0
     if abs(forecast_bonus_wrong_pct - forecast_bonus_threshold_pct) < 1e-9:
         forecast_bonus_wrong_pct = forecast_bonus_threshold_pct + 1.0
     dividend_values = _as_number_list(

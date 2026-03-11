@@ -44,20 +44,20 @@ pages:
 
       - type: radiogroup
         name: q3
-        title: "Suppose the dividend in period {example_period_current} is {example_dividend}. How does this affect the fundamental value in period {example_period_next}?"
+        title: "How is the fundamental value related to dividends?"
         validators:
           - type: expression
             text: "Please check your answer."
-            expression: "{q3} = 'b'"
+            expression: "{q3} = 'a'"
         choices:
           - value: a
-            text: "The fundamental value increases by {example_dividend}."
+            text: "The fundamental value decreases each period by the expected dividend."
           - value: b
-            text: "The fundamental value is unaffected by the realized dividend."
+            text: "The fundamental value decreases each period by the previously realized dividend."
           - value: c
-            text: "The fundamental value decreases by {example_dividend}."
+            text: "The fundamental value does not depend on dividends."
           - value: d
-            text: "The fundamental value equals {example_dividend}."
+            text: "The fundamental value always equals {fundamental_value_start}."
 
       - type: radiogroup
         name: q4
@@ -68,17 +68,17 @@ pages:
             expression: "{q4} = 'c'"
         choices:
           - value: a
-            text: "Your cash holdings at the end of period {payoff_period}, including period {payoff_period} dividends."
+            text: "Your cash holdings at the end of a random market."
           - value: b
-            text: "The number of shares you hold at the end of period {payoff_period}."
+            text: "Your cash holdings plus number of shares you hold at the end of a market, evaluated at the last trading price."
           - value: c
-            text: "Your cash holdings, including period {payoff_period} dividends, plus any forecast bonuses earned."
+            text: "Your cash holdings at the end of a random market, plus any forecast and quiz bonuses earned."
           - value: d
             text: "Your cash holdings at the start of period {payoff_period}, plus any forecast bonuses earned."
 
       - type: radiogroup
         name: q5
-        title: "Which of the following actions are not permitted in this market?"
+        title: "Which of the following actions are not allowed in this market?"
         validators:
           - type: expression
             text: "Please check your answer."
@@ -89,6 +89,6 @@ pages:
           - value: b
             text: "Borrowing cash to purchase additional shares."
           - value: c
-            text: "Buying shares only if you have sufficient cash."
+            text: "Buying shares if you have sufficient cash."
           - value: d
-            text: "Both (a) and (b)."
+            text: "Neither (a) or (b) are allowed."

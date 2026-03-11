@@ -8,12 +8,10 @@
         <li>
           You will trade a single stock with
           <strong>{{ other_human_traders }}</strong> other participant{% if other_human_traders != 1 %}s{% endif %}
-          (<strong>{{ num_human_traders }}</strong> human traders total).
-          The experiment consists of <strong>{{ num_markets }}</strong> consecutive market{% if num_markets != 1 %}s{% endif %}.
-        </li>
+          (<strong>{{ num_human_traders }}</strong> human traders total). </li>
+          <li> The experiment consists of <strong>{{ num_markets }}</strong> consecutive market{% if num_markets != 1 %}s{% endif %}. </li>
         <li>
-          At the beginning of each market you receive an endowment of either
-          <strong>{{ endowment_options_text }}</strong>.
+          At the beginning of each market you receive an endowment of either <strong>{{ endowment_options_text }}</strong>.
         </li>
         <li>
           Each market has <strong>{{ num_days }}</strong> trading period{% if num_days != 1 %}s{% endif %},
@@ -48,14 +46,13 @@
       <ul class="mb-0">
         <li>
           The stock pays a dividend at the end of each period. Dividends are equally likely to be
-          <strong>{{ dividend_values_text }}</strong>, with expected dividend
+          <strong>{{ dividend_values_text }}</strong>, with the expected dividend being
           <strong>{{ expected_dividend }}</strong> per period.
         </li>
         <li>
           Fundamental value declines over time and equals expected dividend times remaining periods (including current period).
           It starts at <strong>{{ fundamental_value_start }}</strong> in period 1 and declines by
           <strong>{{ fundamental_value_step }}</strong> each period, regardless of the realized dividend.
-          By period <strong>{{ payoff_period }}</strong>, it is <strong>{{ fundamental_value_last }}</strong>.
           After the final dividend is paid, the stock is worthless.
         </li>
       </ul>
