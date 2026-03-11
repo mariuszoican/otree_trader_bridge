@@ -1,6 +1,7 @@
 import ast
 import json
 import os
+import random
 import traceback
 
 from otree.api import WaitPage
@@ -182,6 +183,12 @@ def creating_session(subsession: Subsession):
             group.treatment = round_1_group.treatment
             group.market_design = round_1_group.market_design
             group.group_composition = round_1_group.group_composition
+            if _is_first_round_of_market(subsession.round_number):
+                _assign_noise_trader_presence(group)
+            else:
+                source_group = group.in_round(_market_start_round(subsession.round_number))
+                group.noise_trader_draw = _as_float(source_group.noise_trader_draw, 0.0)
+                group.noise_trader_present = bool(source_group.noise_trader_present)
             for player in group.get_players():
                 round_1_player = player.in_round(1)
                 player.assigned_initial_cash = _as_float(
@@ -216,6 +223,7 @@ def creating_session(subsession: Subsession):
         else:
             treatment = configured_treatments[idx % len(configured_treatments)]
             _set_group_treatment(group, treatment)
+        _assign_noise_trader_presence(group)
         for player in players_in_group:
             player.participant.vars["treatment"] = group.treatment
             player.participant.vars["market_design"] = group.market_design
@@ -226,6 +234,7 @@ def creating_session(subsession: Subsession):
         treatments=[g.treatment for g in groups],
         market_designs=[g.market_design for g in groups],
         group_compositions=[g.group_composition for g in groups],
+        noise_trader_present=[bool(g.noise_trader_present) for g in groups],
     )
 
 
@@ -249,6 +258,24 @@ def _set_group_treatment(group: Group, treatment: str):
     group.treatment = treatment_value
     group.market_design = C.TREATMENT_MARKET_DESIGN[treatment_value]
     group.group_composition = C.TREATMENT_GROUP_COMPOSITION[treatment_value]
+
+
+def _assign_noise_trader_presence(group: Group):
+    if str(group.group_composition or "").strip().lower() != "hybrid":
+        group.noise_trader_draw = 0.0
+        group.noise_trader_present = False
+        return
+    threshold = _as_float(
+        group.session.config.get(
+            "hybrid_noise_trader_probability",
+            C.DEFAULT_HYBRID_NOISE_TRADER_PROBABILITY,
+        ),
+        C.DEFAULT_HYBRID_NOISE_TRADER_PROBABILITY,
+    )
+    threshold = max(0.0, min(1.0, threshold))
+    draw = random.random()
+    group.noise_trader_draw = draw
+    group.noise_trader_present = draw < threshold
 
 
 def _expected_total_rounds():
@@ -366,9 +393,11 @@ def _build_initiate_payload(group: Group, players):
         cfg.get("hybrid_noise_traders", C.DEFAULT_HYBRID_NOISE_TRADERS),
         C.DEFAULT_HYBRID_NOISE_TRADERS,
     )
-    # TEMP: force noise traders in all treatments (including "human_only") for debugging/demo runs.
-    # Revert to the composition-based condition once we restore treatment-specific behavior.
-    num_noise_traders = max(0, hybrid_noise_traders)
+    num_noise_traders = (
+        max(0, hybrid_noise_traders)
+        if str(group.group_composition or "").strip().lower() == "hybrid" and bool(group.noise_trader_present)
+        else 0
+    )
     num_days = _resolve_num_days(cfg)
     day_duration_minutes = _resolve_day_duration_minutes(cfg, C.DEFAULT_TRADING_DAY_DURATION)
     all_dividends = [float(x) for x in C.DIVIDEND_SCHEDULE]
@@ -466,6 +495,8 @@ def _copy_market_start_trading_state(group: Group):
     group.trading_day_duration_minutes = source_group.trading_day_duration_minutes
     group.num_days = source_group.num_days
     group.dividends_csv = source_group.dividends_csv
+    group.noise_trader_draw = _as_float(source_group.noise_trader_draw, 0.0)
+    group.noise_trader_present = bool(source_group.noise_trader_present)
     group.trading_init_error = _group_init_error(source_group)
     for player in group.get_players():
         source_player = player.in_round(source_round)

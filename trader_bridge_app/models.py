@@ -16,6 +16,8 @@ class Group(BaseGroup):
     treatment = models.StringField(initial="gh")
     market_design = models.StringField(initial="gamified")
     group_composition = models.StringField(initial="human_only")
+    noise_trader_draw = models.FloatField(initial=0)
+    noise_trader_present = models.BooleanField(initial=False)
     num_days = models.IntegerField(initial=C.DEFAULT_NUM_DAYS)
     dividends_csv = models.LongStringField(blank=True)
 
