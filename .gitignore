@@ -14,3 +14,7 @@ db.sqlite3
 .env
 .env.*
 !.env.example
+
+# Generated bot export artifacts
+_bots_*/
+__temp_bots_*/

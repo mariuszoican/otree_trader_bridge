@@ -1,6 +1,11 @@
 import json
+import random
 from otree.api import Bot, Submission
 from . import *
+
+
+def _bot_rng(bot, salt=""):
+    return random.Random(f"{bot.session.code}:{bot.participant.code}:{bot.round_number}:{salt}")
 
 
 class PlayerBot(Bot):
@@ -26,4 +31,5 @@ class PlayerBot(Bot):
         )
 
         # Self assessment
-        yield selfAssessment, dict(self_assesment=5)
+        rng = _bot_rng(self, "self_assessment")
+        yield selfAssessment, dict(self_assesment=rng.randint(1, 7))

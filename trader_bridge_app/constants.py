@@ -60,7 +60,7 @@ class C(BaseConstants):
     """
 
     NAME_IN_URL = "trader_bridge"
-    PLAYERS_PER_GROUP = max(2, int(os.getenv("PLAYERS_PER_GROUP", 2)))
+    PLAYERS_PER_GROUP = max(6, int(os.getenv("PLAYERS_PER_GROUP", 6)))
     NUM_MARKETS = max(1, int(os.getenv("NUM_MARKETS", 2)))
     DAYS_PER_MARKET = max(1, int(os.getenv("DAYS_PER_MARKET", 2)))
     NUM_ROUNDS = int(os.getenv("NUM_ROUNDS", NUM_MARKETS * DAYS_PER_MARKET))

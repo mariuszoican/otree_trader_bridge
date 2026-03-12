@@ -524,6 +524,19 @@ def _resume_trading_session(group: Group):
     return response.get("data") or {}
 
 
+def _close_trading_session(group: Group):
+    if not group.trading_session_uuid or not group.trading_api_base:
+        raise RuntimeError("Cannot close: missing trading session UUID or API base.")
+    cfg = group.session.config
+    timeout_seconds = _as_int(
+        cfg.get("trading_api_timeout_seconds", C.DEFAULT_API_TIMEOUT_SECONDS),
+        C.DEFAULT_API_TIMEOUT_SECONDS,
+    )
+    close_url = f"{group.trading_api_base}/trading_session/{group.trading_session_uuid}/close"
+    response = _post_json(close_url, {}, timeout_seconds)
+    return response.get("data") or {}
+
+
 def _group_init_error(group: Group) -> str:
     return str(group.field_maybe_none("trading_init_error") or "")
 
@@ -869,6 +882,37 @@ def pause_trading_after_wait(group: Group):
         )
 
 
+def close_trading_after_wait(group: Group):
+    _copy_market_start_trading_state(group)
+    if _group_init_error(group):
+        return
+    if not group.trading_session_uuid:
+        group.trading_init_error = "Missing trading session UUID; cannot close."
+        return
+    try:
+        result = _close_trading_session(group)
+        _capture_daybreak_state(
+            group,
+            observed_last_transaction_price=result.get("last_transaction_price"),
+        )
+        _log(
+            "close_trading_after_wait succeeded",
+            round_number=group.subsession.round_number,
+            trading_session_uuid=group.trading_session_uuid,
+            result=result,
+        )
+        group.trading_init_error = ""
+    except Exception as exc:
+        group.trading_init_error = str(exc)
+        _log(
+            "close_trading_after_wait failed",
+            round_number=group.subsession.round_number,
+            trading_session_uuid=group.trading_session_uuid,
+            error=str(exc),
+            traceback=traceback.format_exc(),
+        )
+
+
 class PauseTradingSession(WaitPage):
     title_text = "Pausing Market"
     body_text = "Please wait while the market is paused for the intermission."
@@ -878,6 +922,20 @@ class PauseTradingSession(WaitPage):
     def is_displayed(player: Player):
         return (
             not _is_last_round_of_market(player.round_number)
+            and not _group_init_error(player.group)
+            and bool(player.trader_uuid)
+        )
+
+
+class FinalizeTradingSession(WaitPage):
+    title_text = "Finalizing Market"
+    body_text = "Please wait while the market is finalized."
+    after_all_players_arrive = close_trading_after_wait
+
+    @staticmethod
+    def is_displayed(player: Player):
+        return (
+            _is_last_round_of_market(player.round_number)
             and not _group_init_error(player.group)
             and bool(player.trader_uuid)
         )
@@ -993,9 +1051,6 @@ class DayBreak(Page):
         num_days = max(1, _as_int(player.group.field_maybe_none("num_days"), C.DAYS_PER_MARKET))
         is_final_day = _is_last_round_of_market(player.round_number)
         should_elicit_forecast = _should_elicit_forecast(player.round_number, num_days)
-        if is_final_day:
-            # On the last day there is no pause wait page, so capture final snapshot here.
-            _capture_daybreak_state(player.group)
         return dict(
             market_number=market_number,
             completed_day=completed_day,
@@ -1099,6 +1154,7 @@ page_sequence = [
     InitFailed,
     TradePage,
     PauseTradingSession,
+    FinalizeTradingSession,
     DayBreak,
     MarketTransition,
 ]

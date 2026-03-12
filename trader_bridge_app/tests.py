@@ -1,4 +1,6 @@
 import json
+import os
+import random
 import unittest
 from csv import writer as csv_writer
 from datetime import datetime
@@ -12,12 +14,30 @@ from . import export
 from .pages import _is_last_round_of_market, _market_number_for_round, _should_elicit_forecast
 
 
-def _participant_session_uuids(participant):
-    session_ids = []
+BOT_EXPORT_ROOT = (
+    Path(__file__).resolve().parents[1]
+    / f"__temp_bots_{datetime.utcnow().strftime('%Y%m%d_%H%M%S_%f')}_{os.getpid()}"
+)
+
+
+def _bot_rng(bot, salt=""):
+    return random.Random(f"{bot.session.code}:{bot.participant.code}:{bot.round_number}:{salt}")
+
+
+def _trader_bridge_players(participant):
+    players = []
     for player in participant.get_players():
         group = getattr(player, "group", None)
-        if group is None:
+        if group is None or not hasattr(group, "trading_session_uuid"):
             continue
+        players.append(player)
+    return players
+
+
+def _participant_session_uuids(participant):
+    session_ids = []
+    for player in _trader_bridge_players(participant):
+        group = getattr(player, "group", None)
         session_uuid = str(group.field_maybe_none("trading_session_uuid") or "")
         if session_uuid and session_uuid not in session_ids:
             session_ids.append(session_uuid)
@@ -34,6 +54,17 @@ def _write_csv(path, rows):
     with path.open("w", encoding="utf-8", newline="") as f:
         writer = csv_writer(f)
         writer.writerows(rows)
+
+
+def _append_csv_rows(path, rows):
+    if not rows:
+        return
+    file_exists = path.exists()
+    with path.open("a", encoding="utf-8", newline="") as f:
+        writer = csv_writer(f)
+        if not file_exists:
+            writer.writerow(rows[0])
+        writer.writerows(rows[1:])
 
 
 def _session_export_rows(session_ids):
@@ -65,41 +96,43 @@ def _session_export_rows(session_ids):
 
 
 def _write_bot_export_snapshot(participant, session_ids, mbo_rows, mbp1_rows):
-    root = Path(__file__).resolve().parents[1]
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    output_dir = root / f"_bots_{timestamp}"
-    suffix = 1
-    while output_dir.exists():
-        output_dir = root / f"_bots_{timestamp}_{suffix}"
-        suffix += 1
-    output_dir.mkdir(parents=True, exist_ok=False)
+    BOT_EXPORT_ROOT.mkdir(parents=True, exist_ok=True)
+    session_code = str(getattr(participant.session, "code", "") or "session")
+    participant_code = str(getattr(participant, "code", "") or "participant")
 
     session_rows = _session_export_rows(session_ids)
-    _write_csv(output_dir / "sessions.csv", session_rows)
-    _write_csv(output_dir / "mbo.csv", mbo_rows)
-    _write_csv(output_dir / "mbp1.csv", mbp1_rows)
+    _append_csv_rows(BOT_EXPORT_ROOT / "sessions.csv", session_rows)
+    _append_csv_rows(BOT_EXPORT_ROOT / "mbo.csv", mbo_rows)
+    _append_csv_rows(BOT_EXPORT_ROOT / "mbp1.csv", mbp1_rows)
 
     readme_lines = [
+        "Aggregated bot export for this test run.",
+        f"Bot export root: {BOT_EXPORT_ROOT}",
+        f"Session code: {session_code}",
         f"Participant code: {participant.code}",
-        f"Simulated sessions exported: {max(0, len(session_rows) - 1)}",
-        f"MBO rows exported: {max(0, len(mbo_rows) - 1)}",
-        f"MBP1 rows exported: {max(0, len(mbp1_rows) - 1)}",
+        f"Simulated sessions appended: {max(0, len(session_rows) - 1)}",
+        f"MBO rows appended: {max(0, len(mbo_rows) - 1)}",
+        f"MBP1 rows appended: {max(0, len(mbp1_rows) - 1)}",
     ]
-    (output_dir / "README.txt").write_text("\n".join(readme_lines) + "\n", encoding="utf-8")
+    with (BOT_EXPORT_ROOT / "README.txt").open("a", encoding="utf-8") as f:
+        if f.tell() == 0:
+            f.write("One row block below corresponds to one completed bridge bot session.\n\n")
+        f.write("\n".join(readme_lines) + "\n\n")
 
 
 def _assert_simulated_export_rows(participant):
+    bridge_players = _trader_bridge_players(participant)
     session_ids = _participant_session_uuids(participant)
     assert session_ids
 
-    mbo_rows = list(export.custom_export_mbo(participant.get_players()))
+    mbo_rows = list(export.custom_export_mbo(bridge_players))
     mbo_header, mbo_body = _filtered_export_rows(mbo_rows, session_ids)
     assert mbo_header[1] == "is_simulated"
     assert mbo_body
     assert {row[0] for row in mbo_body} == set(session_ids)
     assert all(row[1] is True for row in mbo_body)
 
-    mbp1_rows = list(export.custom_export_mbp1(participant.get_players()))
+    mbp1_rows = list(export.custom_export_mbp1(bridge_players))
     mbp1_header, mbp1_body = _filtered_export_rows(mbp1_rows, session_ids)
     assert mbp1_header[1] == "is_simulated"
     assert mbp1_body
@@ -118,13 +151,16 @@ class PlayerBot(Bot):
     def play_round(self):
         num_days = max(1, int(self.session.config.get("num_days", C.DAYS_PER_MARKET) or C.DAYS_PER_MARKET))
         if _should_elicit_forecast(self.round_number, num_days):
+            rng = _bot_rng(self, "forecast")
+            forecast_price = rng.randint(85, 135)
+            forecast_confidence = rng.randint(1, 5)
             forecast_payload = dict(
-                forecast_price_next_day=100 + self.round_number,
-                forecast_confidence_next_day=3,
+                forecast_price_next_day=forecast_price,
+                forecast_confidence_next_day=forecast_confidence,
                 forecast_survey_json=json.dumps(
                     {
-                        "forecast_price_next_day": 100 + self.round_number,
-                        "forecast_confidence_next_day": 3,
+                        "forecast_price_next_day": forecast_price,
+                        "forecast_confidence_next_day": forecast_confidence,
                     }
                 ),
             )
