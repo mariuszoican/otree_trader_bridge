@@ -31,7 +31,13 @@ _load_local_env()
 
 PLAYERS_PER_GROUP = max(2, int(environ.get("PLAYERS_PER_GROUP", 2)))
 
-
+ROOMS = [
+    dict(
+        name="trader_bridge_room",
+        display_name="Trader Bridge Room",
+ 
+    )
+]
 SESSION_CONFIGS = [
     dict(
         name="intro_only",
@@ -42,7 +48,7 @@ SESSION_CONFIGS = [
     ),
     dict(
         name="main",
-        use_browser_bots=False,
+        use_browser_bots=True,
         display_name="Trader Bridge Demo",
         num_demo_participants=12,
         players_per_group=PLAYERS_PER_GROUP,
