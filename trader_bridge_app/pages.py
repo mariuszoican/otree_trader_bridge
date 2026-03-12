@@ -171,6 +171,10 @@ class Page(oTreePage):
 
 def creating_session(subsession: Subsession):
     _validate_market_structure()
+    configured_day_duration = _resolve_day_duration_minutes(
+        subsession.session.config,
+        C.DEFAULT_TRADING_DAY_DURATION,
+    )
     _log(
         "creating_session start",
         round_number=subsession.round_number,
@@ -181,6 +185,7 @@ def creating_session(subsession: Subsession):
         subsession.group_like_round(1)
         for group in subsession.get_groups():
             round_1_group = group.in_round(1)
+            group.trading_day_duration_minutes = configured_day_duration
             group.treatment = round_1_group.treatment
             group.market_design = round_1_group.market_design
             group.group_composition = round_1_group.group_composition
@@ -215,6 +220,7 @@ def creating_session(subsession: Subsession):
     configured_treatments = _parse_treatments(subsession.session.config.get("treatments"))
     groups = subsession.get_groups()
     for idx, group in enumerate(groups):
+        group.trading_day_duration_minutes = configured_day_duration
         players_in_group = group.get_players()
         intro_treatment = ""
         if players_in_group:
