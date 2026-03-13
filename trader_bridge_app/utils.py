@@ -39,9 +39,11 @@ def _log_day_timing(event, **context):
         "event": str(event),
         **{str(k): _json_safe(v) for k, v in context.items()},
     }
+    serialized = json.dumps(payload, sort_keys=True)
+    print(f"[day_timing] {serialized}", flush=True)
     _DAY_TIMING_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with _DAY_TIMING_LOG_PATH.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(payload, sort_keys=True) + "\n")
+        f.write(serialized + "\n")
 
 
 def _as_int(value, fallback):
