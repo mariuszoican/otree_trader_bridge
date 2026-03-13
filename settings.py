@@ -48,7 +48,7 @@ SESSION_CONFIGS = [
     ),
     dict(
         name="main",
-        use_browser_bots=True,
+        use_browser_bots=False,
         display_name="Trader Bridge Demo",
         num_demo_participants=12,
         players_per_group=PLAYERS_PER_GROUP,
