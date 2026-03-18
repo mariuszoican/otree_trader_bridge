@@ -216,10 +216,6 @@ def creating_session(subsession: Subsession):
         _log("creating_session found no players")
         return
 
-    if bool(subsession.session.config.get("temporary_singleton_groups", False)):
-        subsession.set_group_matrix([[player] for player in sorted(players, key=lambda p: p.id_in_subsession)])
-        players = subsession.get_players()
-
     _log("creating_session players loaded", player_ids=[p.id_in_subsession for p in players], num_players=len(players))
 
     configured_treatments = _parse_treatments(subsession.session.config.get("treatments"))
