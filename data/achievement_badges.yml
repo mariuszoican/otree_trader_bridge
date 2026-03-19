@@ -1,0 +1,36 @@
+achievement_badges:
+  - id: bronze
+    trades: 10
+    label: Bronze
+    message: Level up! Doing well
+    gif_asset: bronze.gif
+    image_asset: bronze.png
+    locked_image_asset: bronze_locked.png
+  - id: silver
+    trades: 15
+    label: Silver
+    message: You belong on the trading floor!
+    gif_asset: silver.gif
+    image_asset: silver.png
+    locked_image_asset: silver_locked.png
+  - id: gold
+    trades: 35
+    label: Gold
+    message: You are the money maker!
+    gif_asset: gold.gif
+    image_asset: gold.png
+    locked_image_asset: gold_locked.png
+  - id: platinum
+    trades: 50
+    label: Platinum
+    message: You are definitely going places!
+    gif_asset: platinum.gif
+    image_asset: platinum.png
+    locked_image_asset: platinum_locked.png
+  - id: diamond
+    trades: 60
+    label: Diamond
+    message: The Wolf of Wall Street
+    gif_asset: diamond.gif
+    image_asset: diamond.png
+    locked_image_asset: diamond_locked.png

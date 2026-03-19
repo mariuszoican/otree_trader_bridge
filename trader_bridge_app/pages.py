@@ -3,10 +3,13 @@ import json
 import os
 import random
 import traceback
+from functools import lru_cache
+from pathlib import Path
 
 from otree.api import Currency as cu
 from otree.api import WaitPage
 from otree.api import Page as oTreePage
+import yaml
 
 from .constants import C
 from .models import Group, Player, Subsession
@@ -22,6 +25,50 @@ from .utils import (
     _resolve_day_duration_minutes,
     _ws_base_from_http,
 )
+
+BADGE_CONFIG_PATH = Path(__file__).resolve().parent.parent / "data" / "achievement_badges.yml"
+
+
+@lru_cache(maxsize=1)
+def _load_achievement_badges():
+    with BADGE_CONFIG_PATH.open("r", encoding="utf-8") as f:
+        raw_data = yaml.safe_load(f) or {}
+
+    raw_badges = raw_data.get("achievement_badges", raw_data)
+    if not isinstance(raw_badges, list):
+        raise ValueError("achievement_badges.yml must contain a list under 'achievement_badges'.")
+
+    normalized_badges = []
+    seen_ids = set()
+    for idx, badge in enumerate(raw_badges, start=1):
+        if not isinstance(badge, dict):
+            raise ValueError(f"Badge entry #{idx} must be a mapping.")
+
+        badge_id = str(badge.get("id") or "").strip()
+        if not badge_id:
+            raise ValueError(f"Badge entry #{idx} is missing 'id'.")
+        if badge_id in seen_ids:
+            raise ValueError(f"Duplicate badge id '{badge_id}' in achievement_badges.yml.")
+        seen_ids.add(badge_id)
+
+        trades = _as_int(badge.get("trades"), 0)
+        if trades < 0:
+            raise ValueError(f"Badge '{badge_id}' has invalid 'trades' value: {badge.get('trades')!r}.")
+
+        normalized_badges.append(
+            dict(
+                id=badge_id,
+                trades=trades,
+                label=str(badge.get("label") or badge_id.title()),
+                message=str(badge.get("message") or ""),
+                gifAsset=str(badge.get("gif_asset") or badge.get("gifAsset") or ""),
+                imageAsset=str(badge.get("image_asset") or badge.get("imageAsset") or ""),
+                lockedImageAsset=str(
+                    badge.get("locked_image_asset") or badge.get("lockedImageAsset") or ""
+                ),
+            )
+        )
+    return normalized_badges
 
 def _format_number(value):
     value = _as_float(value, 0.0)
@@ -1096,6 +1143,7 @@ class TradePage(Page):
             dayDurationMinutes=day_duration_minutes,
             tradePageServerContext=_trade_page_log_context(player),
             initialTraderState=_initial_trader_state(player),
+            achievementBadges=_load_achievement_badges(),
         )
 
     @staticmethod

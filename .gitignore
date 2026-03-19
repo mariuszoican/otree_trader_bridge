@@ -14,3 +14,7 @@ db.sqlite3
 .env
 .env.*
 !.env.example
+
+# Local bot run outputs
+__temp_bots*/
+_bots*/
