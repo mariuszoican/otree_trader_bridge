@@ -1181,6 +1181,8 @@ class DayBreak(Page):
             return "Please enter a point forecast for next day closing price."
         if float(price) < 0:
             return "Forecasted price must be non-negative."
+        if not float(price).is_integer():
+            return "Forecasted price must be a whole number."
         if confidence is None:
             return "Please rate your confidence."
         try:

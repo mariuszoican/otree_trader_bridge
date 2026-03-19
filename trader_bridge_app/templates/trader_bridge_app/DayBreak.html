@@ -341,7 +341,7 @@ Day Break
               isRequired: true,
               inputType: "number",
               min: 0,
-              step: 0.01,
+              step: 1,
             },
             {
               type: "rating",
@@ -362,13 +362,32 @@ Day Break
     Survey.StylesManager.applyTheme("defaultV2");
     survey.css = survey.css || {};
     survey.css.root = "sd-root-modern";
+    survey.onAfterRenderQuestion.add((_, options) => {
+      if (options.question?.name !== "forecast_price_next_day") {
+        return;
+      }
+      const input = options.htmlElement?.querySelector("input");
+      if (!input) {
+        return;
+      }
+      input.setAttribute("inputmode", "numeric");
+      input.setAttribute("step", "1");
+      input.addEventListener("wheel", (event) => {
+        event.preventDefault();
+      }, { passive: false });
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+          event.preventDefault();
+        }
+      });
+    });
 
     const prefilledPriceRaw = document.getElementById("id_forecast_price_next_day").value;
     const prefilledPrice = Number(prefilledPriceRaw);
     const prefilledConfidenceRaw = document.getElementById("id_forecast_confidence_next_day").value;
     const prefilledConfidence = Number(prefilledConfidenceRaw);
     if (Number.isFinite(prefilledPrice)) {
-      survey.setValue("forecast_price_next_day", prefilledPrice);
+      survey.setValue("forecast_price_next_day", Math.round(prefilledPrice));
     }
     if (Number.isFinite(prefilledConfidence)) {
       survey.setValue("forecast_confidence_next_day", prefilledConfidence);
@@ -386,7 +405,10 @@ Day Break
           return;
         }
         const data = survey.data || {};
-        document.getElementById("id_forecast_price_next_day").value = data.forecast_price_next_day ?? "";
+        const nextForecastPrice = Number(data.forecast_price_next_day);
+        document.getElementById("id_forecast_price_next_day").value = Number.isFinite(nextForecastPrice)
+          ? Math.round(nextForecastPrice)
+          : "";
         document.getElementById("id_forecast_confidence_next_day").value = data.forecast_confidence_next_day ?? "";
         document.getElementById("id_forecast_survey_json").value = JSON.stringify(data);
       });
