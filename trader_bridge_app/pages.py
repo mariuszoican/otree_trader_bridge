@@ -602,7 +602,11 @@ def _pause_trading_session(group: Group):
         C.DEFAULT_API_TIMEOUT_SECONDS,
     )
     pause_url = f"{group.trading_api_base}/trading_session/{group.trading_session_uuid}/pause"
-    response = _post_json(pause_url, {}, timeout_seconds)
+    response = _post_json(
+        pause_url,
+        {"trading_day": _day_in_market(group.subsession.round_number)},
+        timeout_seconds,
+    )
     return response.get("data") or {}
 
 
@@ -630,7 +634,28 @@ def _resume_trading_session(group: Group):
         C.DEFAULT_API_TIMEOUT_SECONDS,
     )
     resume_url = f"{group.trading_api_base}/trading_session/{group.trading_session_uuid}/resume"
-    response = _post_json(resume_url, {}, timeout_seconds)
+    response = _post_json(
+        resume_url,
+        {"trading_day": _day_in_market(group.subsession.round_number)},
+        timeout_seconds,
+    )
+    return response.get("data") or {}
+
+
+def _finalize_trading_session(group: Group):
+    if not group.trading_session_uuid or not group.trading_api_base:
+        raise RuntimeError("Cannot finalize: missing trading session UUID or API base.")
+    cfg = group.session.config
+    timeout_seconds = _as_int(
+        cfg.get("trading_api_timeout_seconds", C.DEFAULT_API_TIMEOUT_SECONDS),
+        C.DEFAULT_API_TIMEOUT_SECONDS,
+    )
+    finalize_url = f"{group.trading_api_base}/trading_session/{group.trading_session_uuid}/finalize"
+    response = _post_json(
+        finalize_url,
+        {"trading_day": _day_in_market(group.subsession.round_number)},
+        timeout_seconds,
+    )
     return response.get("data") or {}
 
 
@@ -1000,7 +1025,10 @@ class ResumeTradingSession(WaitPage):
 
     @staticmethod
     def is_displayed(player: Player):
-        return player.round_number > 1 and not _is_first_round_of_market(player.round_number)
+        return (
+            not _group_init_error(player.group)
+            and bool(player.trader_uuid)
+        )
 
 
 class InitFailed(Page):
@@ -1126,7 +1154,8 @@ class DayBreak(Page):
         is_final_day = _is_last_round_of_market(player.round_number)
         should_elicit_forecast = _should_elicit_forecast(player.round_number, num_days)
         if is_final_day:
-            # On the last day there is no pause wait page, so capture final snapshot here.
+            _finalize_trading_session(player.group)
+            # On the last day there is no pause wait page, so finalize first and then capture the final snapshot here.
             _capture_daybreak_state(player.group)
         return dict(
             market_number=market_number,
