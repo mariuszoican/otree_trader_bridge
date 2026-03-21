@@ -43,25 +43,61 @@
 
 </style>
 <div id="surveyContainer"></div>
+<input type="hidden" id="surveyResults" name="surveyResults" value="">
+<input type="hidden" id="cqAttemptCount" name="cqAttemptCount" value="0">
+<input type="hidden" id="cqWrongFirstTry" name="cqWrongFirstTry" value="false">
 <script>
 
     const surveyJSON = js_vars.survey_json;
-
-
+    const answerKey = js_vars.answer_key || {};
+    const surveyContainer = document.getElementById('surveyContainer');
+    const surveyResultsInput = document.getElementById('surveyResults');
+    const cqAttemptCountInput = document.getElementById('cqAttemptCount');
+    const cqWrongFirstTryInput = document.getElementById('cqWrongFirstTry');
+    let cqAttemptCount = 0;
+    let cqWrongFirstTry = false;
 
     const survey = new Survey.Model(surveyJSON);
 
+    function hasAllCorrectAnswers(data) {
+        return Object.entries(answerKey).every(([questionName, expectedAnswer]) => {
+            return String(data[questionName] || '').trim() === expectedAnswer;
+        });
+    }
+
+    function persistAttemptMetrics() {
+        cqAttemptCountInput.value = String(cqAttemptCount);
+        cqWrongFirstTryInput.value = cqWrongFirstTry ? 'true' : 'false';
+    }
+
+    function registerCompletionAttempt() {
+        cqAttemptCount += 1;
+        if (cqAttemptCount === 1 && !hasAllCorrectAnswers(survey.data || {})) {
+            cqWrongFirstTry = true;
+        }
+        persistAttemptMetrics();
+    }
 
     survey.applyTheme(SurveyTheme.LayeredLightPanelless);
+    surveyContainer.addEventListener('click', function (event) {
+        if (!event.target.closest('.sd-navigation__complete-btn')) {
+            return;
+        }
+        registerCompletionAttempt();
+    });
     // Initialize the survey
     // Save results on completion
     survey.onComplete.add(function (result) {
+        if (cqAttemptCount === 0) {
+            cqAttemptCount = 1;
+        }
+        persistAttemptMetrics();
         const surveyResults = JSON.stringify(result.data);
         console.log("Survey Results: ", surveyResults);
 
         // Submit the results via POST or other methods
         // Example: Sending to a hidden form field
-        document.getElementById('surveyResults').value = surveyResults;
+        surveyResultsInput.value = surveyResults;
         $('#form').submit();
     });
 
@@ -69,8 +105,6 @@
     Survey.StylesManager.applyTheme("bootstrap");
     $("#surveyContainer").Survey({model: survey});
 </script>
-<!-- Hidden input to store results -->
-<input type="hidden" id="surveyResults" name="surveyResults" value="">
 
 
 {% endblock %}

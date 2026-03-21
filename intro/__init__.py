@@ -35,7 +35,7 @@ def _format_placeholders(obj, context):
     return obj
 
 
-COMPREHENSION_ANSWER_KEY = {"q1": "b", "q2": "d", "q3": "b", "q4": "c", "q5": "d"}
+COMPREHENSION_ANSWER_KEY = {"q1": "b", "q2": "d", "q3": "a", "q4": "c", "q5": "d"}
 
 
 def _as_int(value, default):
@@ -50,6 +50,20 @@ def _as_float(value, default):
         return float(value)
     except (TypeError, ValueError):
         return float(default)
+
+
+def _as_bool(value, default=False):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off", ""}:
+            return False
+    return bool(value)
 
 
 def _format_number(value):
@@ -335,8 +349,12 @@ class SurveyJSPage(Page):
 
         try:
             survey_results = json.loads(self._form_data.get('surveyResults') or '{}')
+            cq_attempt_count = max(1, _as_int(self._form_data.get('cqAttemptCount'), 1))
+            cq_wrong_first_try = _as_bool(self._form_data.get('cqWrongFirstTry'), False)
             pprint(survey_results)
             process_survey_data(self.player, survey_results)
+            self.player.cq_attempt_count = cq_attempt_count
+            self.player.cq_wrong_first_try = cq_wrong_first_try
             self.player.attention_check_passed = all(
                 str(survey_results.get(key, '')).strip() == expected
                 for key, expected in COMPREHENSION_ANSWER_KEY.items()
@@ -448,6 +466,8 @@ class Player(BasePlayer):
     # comprehension quiz fields
     attention_check = models.StringField(blank=True)
     attention_check_passed = models.BooleanField(blank=True)
+    cq_wrong_first_try = models.BooleanField(initial=False)
+    cq_attempt_count = models.IntegerField(initial=1)
     q1 = models.StringField(
         label="At the end of each period, the asset pays a dividend. Which statement is correct?",
         widget=widgets.RadioSelect,
@@ -469,13 +489,13 @@ class Player(BasePlayer):
         ],
     )
     q3 = models.StringField(
-        label="Suppose the dividend in period 3 is E$20. How does this affect fundamental value in period 4?",
+        label="How is the fundamental value related to dividends?",
         widget=widgets.RadioSelect,
         choices=[
-            ('a', "The fundamental value increases by E$20."),
-            ('b', "The fundamental value is unaffected by the realized dividend."),
-            ('c', "The fundamental value decreases by E$20."),
-            ('d', "The fundamental value equals E$20."),
+            ('a', "The fundamental value decreases each period by the expected dividend."),
+            ('b', "The fundamental value decreases each period by the previously realized dividend."),
+            ('c', "The fundamental value does not depend on dividends."),
+            ('d', "The fundamental value always equals the starting fundamental value."),
         ],
     )
     q4 = models.StringField(
@@ -546,7 +566,8 @@ class comprehensionQuestions(SurveyJSPage):
     def js_vars(player: Player):
         survey = load_comprehension_survey(_experiment_params(player))
         return dict(
-            survey_json=survey
+            survey_json=survey,
+            answer_key=COMPREHENSION_ANSWER_KEY,
         )
 
 
