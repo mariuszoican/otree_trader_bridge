@@ -49,49 +49,30 @@
 <script>
 
     const surveyJSON = js_vars.survey_json;
-    const answerKey = js_vars.answer_key || {};
-    const surveyContainer = document.getElementById('surveyContainer');
     const surveyResultsInput = document.getElementById('surveyResults');
     const cqAttemptCountInput = document.getElementById('cqAttemptCount');
     const cqWrongFirstTryInput = document.getElementById('cqWrongFirstTry');
-    let cqAttemptCount = 0;
-    let cqWrongFirstTry = false;
+    let cqFailedAttemptCount = 0;
 
     const survey = new Survey.Model(surveyJSON);
 
-    function hasAllCorrectAnswers(data) {
-        return Object.entries(answerKey).every(([questionName, expectedAnswer]) => {
-            return String(data[questionName] || '').trim() === expectedAnswer;
-        });
-    }
-
-    function persistAttemptMetrics() {
-        cqAttemptCountInput.value = String(cqAttemptCount);
-        cqWrongFirstTryInput.value = cqWrongFirstTry ? 'true' : 'false';
-    }
-
-    function registerCompletionAttempt() {
-        cqAttemptCount += 1;
-        if (cqAttemptCount === 1 && !hasAllCorrectAnswers(survey.data || {})) {
-            cqWrongFirstTry = true;
-        }
-        persistAttemptMetrics();
+    function persistAttemptMetrics(totalAttemptCount) {
+        const normalizedAttemptCount = Math.max(1, Number(totalAttemptCount) || 1);
+        cqAttemptCountInput.value = String(normalizedAttemptCount);
+        cqWrongFirstTryInput.value = cqFailedAttemptCount > 0 ? 'true' : 'false';
     }
 
     survey.applyTheme(SurveyTheme.LayeredLightPanelless);
-    surveyContainer.addEventListener('click', function (event) {
-        if (!event.target.closest('.sd-navigation__complete-btn')) {
-            return;
+    const validationEvent = survey.onValidatedErrorsOnCurrentPage || survey.onValidatePage;
+    validationEvent.add(function (_, options) {
+        if ((options && options.errors && options.errors.length > 0) || survey.containsErrors) {
+            cqFailedAttemptCount += 1;
         }
-        registerCompletionAttempt();
     });
     // Initialize the survey
     // Save results on completion
     survey.onComplete.add(function (result) {
-        if (cqAttemptCount === 0) {
-            cqAttemptCount = 1;
-        }
-        persistAttemptMetrics();
+        persistAttemptMetrics(cqFailedAttemptCount + 1);
         const surveyResults = JSON.stringify(result.data);
         console.log("Survey Results: ", surveyResults);
 

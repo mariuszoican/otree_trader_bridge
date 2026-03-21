@@ -567,7 +567,6 @@ class comprehensionQuestions(SurveyJSPage):
         survey = load_comprehension_survey(_experiment_params(player))
         return dict(
             survey_json=survey,
-            answer_key=COMPREHENSION_ANSWER_KEY,
         )
 
 
