@@ -192,6 +192,10 @@ def _instruction_context(player):
         exchange_rate_text=_format_number(exchange_rate),
         quiz_bonus_per_correct_text=_format_number(quiz_bonus_per_correct),
         forecast_schedule_text=_forecast_schedule_text(num_days),
+        num_days_after_first=max(0, num_days - 1),
+        num_days_after_second=max(0, num_days - 2),
+        fundamental_value_after_first=_money(max(0, fundamental_value_start - expected_dividend)),
+        fundamental_value_after_second=_money(max(0, fundamental_value_start - (2 * expected_dividend))),
     )
 
 
