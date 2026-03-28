@@ -1,7 +1,9 @@
 import json
 import csv
 import random
+import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from otree.api import Currency as cu, Submission, Bot
 from . import *
@@ -29,6 +31,8 @@ class PlayerBot(Bot):
             dict(surveyResults=json.dumps(randomized_answers), ),
             check_html=False,
         )
+
+        yield LabContact, dict(ucid="U1234567", email="participant@example.com")
 
         # Demographics (randomized survey payload)
         demo_payload = {
@@ -90,3 +94,19 @@ class PlayerBot(Bot):
             dict(surveyResults=json.dumps(pilot_payload)),
             check_html=False,
         )
+
+
+class PostExpPageTests(unittest.TestCase):
+    def test_lab_contact_defaults_to_visible(self):
+        player = SimpleNamespace(round_number=1, session=SimpleNamespace(config={}))
+        assert LabContact.is_displayed(player) is True
+
+    def test_lab_contact_respects_toggle(self):
+        player = SimpleNamespace(round_number=1, session=SimpleNamespace(config={"show_lab_contact_page": False}))
+        assert LabContact.is_displayed(player) is False
+
+    def test_lab_contact_accepts_blank_email(self):
+        assert LabContact.error_message(None, {"email": ""}) is None
+
+    def test_lab_contact_rejects_invalid_email(self):
+        assert LabContact.error_message(None, {"email": "not-an-email"}) == "Please enter a valid e-mail address or leave it blank."

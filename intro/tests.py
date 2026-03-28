@@ -1,4 +1,7 @@
 import json
+import unittest
+from types import SimpleNamespace
+
 from otree.api import Bot, Submission
 from . import *
 
@@ -10,6 +13,8 @@ class PlayerBot(Bot):
 
         # Instructions (no form)
         yield Instructions
+
+        yield InstructionsVideo
 
         # Comprehension (SurveyJS; submit via hidden field)
         survey_payload = {
@@ -34,3 +39,13 @@ class PlayerBot(Bot):
 
         # Self assessment
         yield selfAssessment, dict(self_assesment=5)
+
+
+class IntroPageTests(unittest.TestCase):
+    def test_instructions_video_defaults_to_visible(self):
+        player = SimpleNamespace(session=SimpleNamespace(config={}))
+        assert InstructionsVideo.is_displayed(player) is True
+
+    def test_instructions_video_respects_toggle(self):
+        player = SimpleNamespace(session=SimpleNamespace(config={"show_intro_video_page": False}))
+        assert InstructionsVideo.is_displayed(player) is False

@@ -66,6 +66,7 @@ SESSION_CONFIGS = [
         num_demo_participants=12,
         players_per_group=PLAYERS_PER_GROUP,
         temporary_singleton_groups=TEMP_SINGLETON_GROUPS,
+        show_intro_video_page=True,
         app_sequence=["intro"],
     ),
     dict(
@@ -98,6 +99,7 @@ SESSION_CONFIGS = [
         num_demo_participants=2,
         players_per_group=PLAYERS_PER_GROUP,
         temporary_singleton_groups=TEMP_SINGLETON_GROUPS,
+        show_lab_contact_page=True,
         app_sequence=["post_exp"],
     ),
     dict(
@@ -106,6 +108,8 @@ SESSION_CONFIGS = [
         num_demo_participants=12,
         players_per_group=PLAYERS_PER_GROUP,
         temporary_singleton_groups=TEMP_SINGLETON_GROUPS,
+        show_intro_video_page=True,
+        show_lab_contact_page=True,
         app_sequence=["intro", "trader_bridge_app", "post_exp"],
         trading_api_base=environ.get("TRADING_API_BASE", "http://localhost:8001"),
         trading_api_timeout_seconds=20,
@@ -135,6 +139,8 @@ SESSION_CONFIG_DEFAULTS = dict(
     forecast_bonus_amount=20,
     forecast_bonus_threshold_pct=5,
     dividend_values=[0, 4, 8, 20],
+    show_intro_video_page=True,
+    show_lab_contact_page=True,
     doc="",
 )
 

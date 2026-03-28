@@ -1,4 +1,4 @@
-from otree.api import BaseGroup, BasePlayer, BaseSubsession, models
+from otree.api import BaseGroup, BasePlayer, BaseSubsession, models, widgets
 
 from .constants import C
 
@@ -40,3 +40,15 @@ class Player(BasePlayer):
     realized_next_day_closing_price = models.FloatField(blank=True)
     forecast_bonus_earned = models.CurrencyField(initial=0)
     forecast_bonus_scored = models.BooleanField(initial=False)
+    algo_belief_present = models.StringField(
+        blank=True,
+        label="Do you think an algorithmic trader was present in this market?",
+        choices=[("yes", "Yes"), ("no", "No")],
+        widget=widgets.RadioSelect,
+    )
+    algo_belief_confidence = models.IntegerField(
+        blank=True,
+        label="How confident are you in your answer?",
+        choices=range(1, 6),
+        widget=widgets.RadioSelect,
+    )

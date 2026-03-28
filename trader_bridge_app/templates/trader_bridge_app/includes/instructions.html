@@ -34,7 +34,7 @@
         <li>Algorithmic traders may operate in your market alongside human participants.</li>
         <li>You are not told whether algorithms are present during trading.</li>
         <li>If present, they submit orders automatically according to undisclosed rules.</li>
-        <li>At the end of the experiment, you will be asked whether you believe algorithms were present.</li>
+        <li>After each hybrid market, you will be asked whether you believe algorithms were present.</li>
       </ul>
     </div>
   </div>
@@ -46,14 +46,20 @@
       <ul class="mb-0">
         <li>
           The stock pays a dividend at the end of each period. Dividends are equally likely to be
-          <strong>{{ dividend_values_text }}</strong>, with the expected dividend being
-          <strong>{{ expected_dividend }}</strong> per period.
+          <strong>{{ dividend_values_text }}</strong>.
         </li>
         <li>
-          Fundamental value declines over time and equals expected dividend times remaining periods (including current period).
-          It starts at <strong>{{ fundamental_value_start }}</strong> in period 1 and declines by
-          <strong>{{ fundamental_value_step }}</strong> each period, regardless of the realized dividend.
-          After the final dividend is paid, the stock is worthless.
+          Each period, the dividend on each stock is <strong>{{ expected_dividend }}</strong> on average. Since there are {{ num_days }}
+          periods, the sum of all expected dividends in period 1 is <strong>{{ fundamental_value_start }}</strong>
+          (= {{ num_days }} * {{ expected_dividend }}) for each stock.
+          {% if num_days_after_first > 0 %}
+            In the second period the stock will have paid its first dividend, so there are only {{ num_days_after_first }} more payments left, each worth {{ expected_dividend }} in expectation.
+            So, the sum of all remaining expected dividends is <strong>{{ fundamental_value_after_first }}</strong>.
+          {% endif %}
+          {% if num_days_after_second > 0 %}
+            In the third period there will be {{ num_days_after_second }} more payments left, with an expected total dividend of <strong>{{ fundamental_value_after_second }}</strong>, etc.
+          {% endif %}
+          The fundamental value declines over time and equals expected dividend times remaining periods. After the final dividend is paid, the stock is worthless.
         </li>
       </ul>
     </div>

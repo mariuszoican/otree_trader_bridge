@@ -1242,6 +1242,43 @@ class DayBreak(Page):
         return None
 
 
+class AlgoBeliefAfterMarket(Page):
+    form_model = "player"
+    form_fields = ["algo_belief_present", "algo_belief_confidence"]
+
+    @staticmethod
+    def is_displayed(player: Player):
+        return (
+            _is_last_round_of_market(player.round_number)
+            and str(player.group.group_composition or "").strip().lower() == "hybrid"
+        )
+
+    @staticmethod
+    def vars_for_template(player: Player):
+        completed_market = _market_number_for_round(player.round_number)
+        return dict(
+            completed_market=completed_market,
+            total_markets=C.NUM_MARKETS,
+            was_final_market=completed_market >= C.NUM_MARKETS,
+        )
+
+    @staticmethod
+    def error_message(player: Player, values):
+        belief = values.get("algo_belief_present")
+        confidence = values.get("algo_belief_confidence")
+        if belief not in {"yes", "no"}:
+            return "Please indicate whether you believe an algorithmic trader was present."
+        if confidence is None:
+            return "Please rate your confidence."
+        try:
+            conf_val = int(confidence)
+        except (TypeError, ValueError):
+            return "Confidence must be an integer from 1 to 5."
+        if conf_val < 1 or conf_val > 5:
+            return "Confidence must be between 1 and 5."
+        return None
+
+
 class MarketTransition(Page):
     @staticmethod
     def is_displayed(player: Player):
@@ -1307,5 +1344,6 @@ page_sequence = [
     TradePage,
     PauseTradingSession,
     DayBreak,
+    AlgoBeliefAfterMarket,
     # MarketTransition,
 ]

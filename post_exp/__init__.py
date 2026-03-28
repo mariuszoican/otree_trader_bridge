@@ -2,6 +2,7 @@ from otree.api import *
 from otree.api import Page as oTreePage
 import csv
 import json
+import re
 from pprint import pprint
 import random
 import logging
@@ -160,6 +161,27 @@ def process_survey_data(player, survey_results):
             logger.error(f'Error setting field "{key}": {e}')
 
 
+def _as_bool(value, default=False):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off", ""}:
+            return False
+    return bool(value)
+
+
+def _is_valid_email(value):
+    text = str(value or "").strip()
+    if not text:
+        return True
+    return bool(re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", text))
+
+
 class Page(oTreePage):
     instructions = False
 
@@ -259,6 +281,8 @@ class Group(BaseGroup):
 class Player(BasePlayer):
     payable_market = models.IntegerField()
     payoff_for_trade = models.CurrencyField()
+    ucid = models.StringField(blank=True)
+    email = models.StringField(blank=True)
 
     # Literacy Quiz Fields
     savings_interest = models.StringField()
@@ -377,6 +401,24 @@ class Demographics(SurveyJSPage):
         return player.round_number == C.NUM_ROUNDS
 
 
+class LabContact(Page):
+    form_model = "player"
+    form_fields = ["ucid", "email"]
+
+    @staticmethod
+    def is_displayed(player: Player):
+        return (
+            player.round_number == C.NUM_ROUNDS
+            and _as_bool(player.session.config.get("show_lab_contact_page", True), True)
+        )
+
+    @staticmethod
+    def error_message(player: Player, values):
+        if not _is_valid_email(values.get("email")):
+            return "Please enter a valid e-mail address or leave it blank."
+        return None
+
+
 class Payoff(Page):
     @staticmethod
     def is_displayed(player: Player):
@@ -450,6 +492,7 @@ class FinalForProlific(Page):
 
 page_sequence = [
     literacyQuiz,
+    LabContact,
     Demographics,
     Payoff,
     PilotFeedback,

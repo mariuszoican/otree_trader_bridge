@@ -3,6 +3,7 @@ import unittest
 from csv import writer as csv_writer
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from otree.api import Bot, Submission
@@ -132,8 +133,11 @@ class PlayerBot(Bot):
         else:
             yield DayBreak
 
-        if _is_last_round_of_market(self.round_number) and _market_number_for_round(self.round_number) < C.NUM_MARKETS:
-            yield MarketTransition
+        if _is_last_round_of_market(self.round_number) and str(self.player.group.group_composition or "").strip().lower() == "hybrid":
+            yield AlgoBeliefAfterMarket, dict(
+                algo_belief_present="yes",
+                algo_belief_confidence=4,
+            )
 
         if self.round_number == C.NUM_ROUNDS:
             assert self.participant.vars.get("payable_market") in range(1, C.NUM_MARKETS + 1)
@@ -222,3 +226,39 @@ class ExportTests(unittest.TestCase):
         assert rows[1][1] is True
         assert rows[1][2] == 1
         assert rows[1][3] == 2
+
+
+class AlgoBeliefPageTests(unittest.TestCase):
+    def test_algo_belief_page_visible_only_for_last_round_hybrid(self):
+        player = SimpleNamespace(round_number=C.DAYS_PER_MARKET, group=SimpleNamespace(group_composition="hybrid"))
+        assert AlgoBeliefAfterMarket.is_displayed(player) is True
+
+        player = SimpleNamespace(round_number=1, group=SimpleNamespace(group_composition="hybrid"))
+        assert AlgoBeliefAfterMarket.is_displayed(player) is False
+
+        player = SimpleNamespace(round_number=C.DAYS_PER_MARKET, group=SimpleNamespace(group_composition="human_only"))
+        assert AlgoBeliefAfterMarket.is_displayed(player) is False
+
+    def test_algo_belief_page_requires_valid_inputs(self):
+        player = SimpleNamespace()
+        assert (
+            AlgoBeliefAfterMarket.error_message(
+                player,
+                {"algo_belief_present": "", "algo_belief_confidence": None},
+            )
+            == "Please indicate whether you believe an algorithmic trader was present."
+        )
+        assert (
+            AlgoBeliefAfterMarket.error_message(
+                player,
+                {"algo_belief_present": "yes", "algo_belief_confidence": 7},
+            )
+            == "Confidence must be between 1 and 5."
+        )
+        assert (
+            AlgoBeliefAfterMarket.error_message(
+                player,
+                {"algo_belief_present": "no", "algo_belief_confidence": 3},
+            )
+            is None
+        )

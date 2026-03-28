@@ -250,6 +250,10 @@ def _experiment_params(player: "Player"):
         exchange_rate_text=_format_number(exchange_rate),
         quiz_bonus_per_correct_text=_format_number(quiz_bonus_per_correct),
         forecast_schedule_text=_forecast_schedule_text(days_per_market),
+        num_days_after_first=max(0, days_per_market - 1),
+        num_days_after_second=max(0, days_per_market - 2),
+        fundamental_value_after_first=_money(max(0, fundamental_value_start - expected_dividend)),
+        fundamental_value_after_second=_money(max(0, fundamental_value_start - (2 * expected_dividend))),
     )
 
 
@@ -560,6 +564,12 @@ class Instructions(Page):
         return _experiment_params(player)
 
 
+class InstructionsVideo(Page):
+    @staticmethod
+    def is_displayed(player: Player):
+        return _as_bool(player.session.config.get("show_intro_video_page", True), True)
+
+
 class comprehensionQuestions(SurveyJSPage):
     instructions = True
     @staticmethod
@@ -578,6 +588,7 @@ class selfAssessment(Page):
 page_sequence = [
     Consent,
     Instructions,
+    InstructionsVideo,
     comprehensionQuestions,
     selfAssessment,
 ]
