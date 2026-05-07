@@ -9,12 +9,18 @@
           You will trade a single stock with
           <strong>{{ other_human_traders }}</strong> other participant{% if other_human_traders != 1 %}s{% endif %}
           (<strong>{{ num_human_traders }}</strong> human traders total). </li>
-          <li> The experiment consists of <strong>{{ num_markets }}</strong> consecutive market{% if num_markets != 1 %}s{% endif %}. </li>
+          <li>
+            The experiment starts with one short <strong>training market</strong> of
+            <strong>{{ training_days }}</strong> period{% if training_days != 1 %}s{% endif %}, followed by
+            <strong>{{ num_main_markets }}</strong> main market{% if num_main_markets != 1 %}s{% endif %}
+            of <strong>{{ num_days }}</strong> period{% if num_days != 1 %}s{% endif %} each.
+            Outcomes during training do not affect your final payment.
+          </li>
         <li>
           At the beginning of each market you receive an endowment of either <strong>{{ endowment_options_text }}</strong>.
         </li>
         <li>
-          Each market has <strong>{{ num_days }}</strong> trading period{% if num_days != 1 %}s{% endif %},
+          Each main market has <strong>{{ num_days }}</strong> trading period{% if num_days != 1 %}s{% endif %},
           each lasting <strong>{{ trading_day_duration }}</strong> minute{% if trading_day_duration != 1 %}s{% endif %}
           (<strong>{{ market_total_minutes }}</strong> minutes total per market).
           {{ forecast_schedule_text }}
@@ -102,7 +108,7 @@
         </li>
         <li>
           Experimental currency converts to real money at rate:
-          <strong>1 point = {{ exchange_rate_text }}</strong> (session currency units).
+          <strong>E$1  = ${{ exchange_rate_text }}</strong> .
         </li>
         <li>
           Quiz bonus per correct answer: <strong>{{ quiz_bonus_per_correct_text }}</strong> points.
