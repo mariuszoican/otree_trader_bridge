@@ -242,8 +242,13 @@ class SurveyJSPage(Page):
 
 
 def creating_session(subsession):
-    num_markets = max(1, int(subsession.session.config.get("num_markets", 2) or 2))
+    num_markets = max(1, int(subsession.session.config.get("num_markets", 3) or 3))
     num_days = max(1, int(subsession.session.config.get("num_days", 1) or 1))
+    # Market 1 is the training market and is excluded from random payoff
+    # selection; payable markets are drawn uniformly from main markets only.
+    first_payable_market = max(2, int(subsession.session.config.get("first_payable_market", 2) or 2))
+    if first_payable_market > num_markets:
+        first_payable_market = num_markets
     for p in subsession.get_players():
         payable_market = p.participant.vars.get("payable_market")
         if payable_market is None:
@@ -251,8 +256,8 @@ def creating_session(subsession):
             if legacy_round is not None:
                 payable_market = ((int(legacy_round) - 1) // num_days) + 1
             else:
-                payable_market = random.randint(1, num_markets)
-        payable_market = max(1, min(int(payable_market), num_markets))
+                payable_market = random.randint(first_payable_market, num_markets)
+        payable_market = max(first_payable_market, min(int(payable_market), num_markets))
         p.payable_market = payable_market
         stored_trade_payoff = p.participant.vars.get("payoff_for_trade")
         if stored_trade_payoff is not None:
@@ -443,7 +448,7 @@ class Payoff(Page):
         fee_per_correct = player.session.config.get("fee_per_correct_answer", 1)
         exchange_rate = player.session.config.get("real_world_currency_per_point", 1)
         participation_fee = player.session.config.get("participation_fee", 0)
-        total_markets = max(1, int(player.session.config.get("num_markets", 2) or 2))
+        total_markets = max(1, int(player.session.config.get("num_markets", 3) or 3))
         cash_bonus = total_points.to_real_world_currency(player.session)
         total_real = player.session._get_payoff_plus_participation_fee(total_points)
         return dict(

@@ -202,10 +202,18 @@ Market Complete
 {% block content %}
 <div class="results-shell">
   <section class="results-hero">
-    <p class="results-kicker">Market {{ market_number }} · Final Day {{ total_days }}</p>
-    <h2 class="results-title">Trading Finished</h2>
+    <p class="results-kicker">
+      {% if is_training_market %}Training Market{% else %}Market {{ market_number }}{% endif %} · Final Period {{ total_days }}
+    </p>
+    <h2 class="results-title">
+      {% if is_training_market %}Training Complete{% else %}Trading Finished{% endif %}
+    </h2>
     <p class="results-subtitle">
-      This is your terminal portfolio summary after all dividends were processed.
+      {% if is_training_market %}
+        This was a practice market &mdash; outcomes here do not affect your final payment.
+      {% else %}
+        This is your terminal portfolio summary after all dividends were processed.
+      {% endif %}
     </p>
 
     <div class="results-main">
