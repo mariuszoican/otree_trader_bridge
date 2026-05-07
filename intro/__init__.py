@@ -261,7 +261,7 @@ def _experiment_params(player: "Player"):
         example_period_next=4,
         example_dividend=_money(example_dividend),
         payoff_period=days_per_market,
-        exchange_rate_text=_format_number(exchange_rate),
+        exchange_rate_text=f"{exchange_rate:g}",
         quiz_bonus_per_correct_text=_format_number(quiz_bonus_per_correct),
         forecast_schedule_text=_forecast_schedule_text(days_per_market),
         num_days_after_first=max(0, days_per_market - 1),

@@ -104,15 +104,14 @@ Next Market
 <div class="market-transition">
   <section class="market-transition-card">
     <p class="market-transition-kicker">Training Complete</p>
-    <h2 class="market-transition-title">Paid Markets Begin Next</h2>
+    <h2 class="market-transition-title">Main Markets Begin Next</h2>
     <p class="market-transition-copy">
-      You have finished the {{ completed_market }}-market warm-up. From the
-      next round onward, every period counts toward your final payment: the
+      You have finished the {{ completed_market }}-market warm-up. The
       experiment continues with <strong>{{ num_main_markets }}</strong>
-      paid market{% if num_main_markets != 1 %}s{% endif %} of
+      main market{% if num_main_markets != 1 %}s{% endif %} of
       <strong>{{ days_per_market }}</strong> trading
       period{% if days_per_market != 1 %}s{% endif %} each. One of these
-      paid markets will be selected at random for your trading payoff.
+      main markets will be selected at random for your trading payoff.
     </p>
     <div class="market-transition-pill">
       Up next: Market {{ next_market }} of {{ total_markets }}
