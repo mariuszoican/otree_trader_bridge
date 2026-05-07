@@ -10,7 +10,12 @@ from otree.api import Bot, Submission
 
 from . import *
 from . import export
-from .pages import _is_last_round_of_market, _market_number_for_round, _should_elicit_forecast
+from .pages import (
+    _days_in_market,
+    _is_last_round_of_market,
+    _market_number_for_round,
+    _should_elicit_forecast,
+)
 
 
 def _participant_session_uuids(participant):
@@ -117,7 +122,7 @@ def _assert_simulated_export_rows(participant):
 
 class PlayerBot(Bot):
     def play_round(self):
-        num_days = max(1, int(self.session.config.get("num_days", C.DAYS_PER_MARKET) or C.DAYS_PER_MARKET))
+        num_days = _days_in_market(self.round_number)
         if _should_elicit_forecast(self.round_number, num_days):
             forecast_payload = dict(
                 forecast_price_next_day=100 + self.round_number,
@@ -140,7 +145,8 @@ class PlayerBot(Bot):
             )
 
         if self.round_number == C.NUM_ROUNDS:
-            assert self.participant.vars.get("payable_market") in range(1, C.NUM_MARKETS + 1)
+            # Training market (1) is excluded from payable selection.
+            assert self.participant.vars.get("payable_market") in range(C.TRAINING_MARKET_NUMBER + 1, C.NUM_MARKETS + 1)
             assert "payoff_for_trade" in self.participant.vars
             assert "cumulative_bonuses" in self.participant.vars
             if self.player.id_in_group == 1:
@@ -230,13 +236,14 @@ class ExportTests(unittest.TestCase):
 
 class AlgoBeliefPageTests(unittest.TestCase):
     def test_algo_belief_page_visible_only_for_last_round_hybrid(self):
-        player = SimpleNamespace(round_number=C.DAYS_PER_MARKET, group=SimpleNamespace(group_composition="hybrid"))
+        last_round_of_last_market = C.NUM_ROUNDS
+        player = SimpleNamespace(round_number=last_round_of_last_market, group=SimpleNamespace(group_composition="hybrid"))
         assert AlgoBeliefAfterMarket.is_displayed(player) is True
 
         player = SimpleNamespace(round_number=1, group=SimpleNamespace(group_composition="hybrid"))
         assert AlgoBeliefAfterMarket.is_displayed(player) is False
 
-        player = SimpleNamespace(round_number=C.DAYS_PER_MARKET, group=SimpleNamespace(group_composition="human_only"))
+        player = SimpleNamespace(round_number=last_round_of_last_market, group=SimpleNamespace(group_composition="human_only"))
         assert AlgoBeliefAfterMarket.is_displayed(player) is False
 
     def test_algo_belief_page_requires_valid_inputs(self):

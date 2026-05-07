@@ -156,8 +156,10 @@ def _format_endowment_options_text(options):
 
 def _instruction_context(player):
     cfg = player.session.config
-    num_markets = max(1, _as_int(cfg.get("num_markets", C.NUM_MARKETS), C.NUM_MARKETS))
-    num_days = max(1, _as_int(cfg.get("num_days", C.DAYS_PER_MARKET), C.DAYS_PER_MARKET))
+    num_markets = C.NUM_MARKETS
+    num_main_markets = max(0, num_markets - 1)
+    # For instruction copy we describe a typical (non-training) market.
+    num_days = C.DAYS_PER_MARKET
     preferred_size = preferred_players_per_group(cfg, C.DEFAULT_GROUP_SIZE)
     num_human_traders = realized_group_size_for_player(player, preferred_size)
     other_human_traders = max(0, num_human_traders - 1)
@@ -187,8 +189,10 @@ def _instruction_context(player):
         other_human_traders=other_human_traders,
         has_algorithmic_traders=has_algorithmic_traders,
         num_markets=num_markets,
+        num_main_markets=num_main_markets,
+        training_days=C.TRAINING_DAYS,
         num_days=num_days,
-        total_periods=num_markets * num_days,
+        total_periods=C.NUM_ROUNDS,
         trading_day_duration=day_duration,
         market_total_minutes=market_total_minutes,
         endowment_options_text=_format_endowment_options_text(endowment_options),
@@ -358,14 +362,8 @@ def _set_group_treatment(group: Group, treatment: str):
     group.group_composition = C.TREATMENT_GROUP_COMPOSITION[treatment_value]
 
 
-def _hybrid_equivalent_treatment(treatment: str):
-    treatment_value = str(treatment or "").strip().lower()
-    return {
-        "gh": "gm",
-        "nh": "nm",
-        "gm": "gm",
-        "nm": "nm",
-    }.get(treatment_value, "gm")
+def _treatment_flags(treatment: str):
+    return C.TREATMENT_FLAGS.get(str(treatment or "").strip().lower(), (False, False))
 
 
 def _should_force_nt_for_group(group: Group):
@@ -379,57 +377,54 @@ def _should_force_nt_for_group(group: Group):
 
 def _assign_group_treatment(group: Group, treatment: str):
     _set_group_treatment(group, treatment)
-    if _should_force_nt_for_group(group):
-        _set_group_treatment(group, _hybrid_equivalent_treatment(group.treatment))
 
 
 def _assign_noise_trader_presence(group: Group):
-    if _should_force_nt_for_group(group):
-        group.noise_trader_draw = 0.0
-        group.noise_trader_present = True
-        return
-    if str(group.group_composition or "").strip().lower() != "hybrid":
-        group.noise_trader_draw = 0.0
-        group.noise_trader_present = False
-        return
-    threshold = _as_float(
-        group.session.config.get(
-            "hybrid_noise_trader_probability",
-            C.DEFAULT_HYBRID_NOISE_TRADER_PROBABILITY,
-        ),
-        C.DEFAULT_HYBRID_NOISE_TRADER_PROBABILITY,
-    )
-    threshold = max(0.0, min(1.0, threshold))
-    draw = random.random()
-    group.noise_trader_draw = draw
-    group.noise_trader_present = draw < threshold
+    # All four current treatments are human-only by design. We still drop
+    # in a single noise trader when a tail group ends up smaller than the
+    # configured threshold, so the market is viable to trade.
+    group.noise_trader_draw = 0.0
+    group.noise_trader_present = bool(_should_force_nt_for_group(group))
 
 
 def _expected_total_rounds():
-    return int(C.NUM_MARKETS * C.DAYS_PER_MARKET)
+    return int(sum(C.MARKET_DAYS))
 
 
 def _validate_market_structure():
     expected = _expected_total_rounds()
     if int(C.NUM_ROUNDS) != expected:
         raise RuntimeError(
-            f"NUM_ROUNDS={C.NUM_ROUNDS} must equal NUM_MARKETS*DAYS_PER_MARKET={expected}."
+            f"NUM_ROUNDS={C.NUM_ROUNDS} must equal sum(MARKET_DAYS)={expected}."
         )
 
 
 def _market_number_for_round(round_number):
     day = max(1, _as_int(round_number, 1))
-    return ((day - 1) // C.DAYS_PER_MARKET) + 1
-
-
-def _day_in_market(round_number):
-    day = max(1, _as_int(round_number, 1))
-    return ((day - 1) % C.DAYS_PER_MARKET) + 1
+    cumulative = 0
+    for idx, market_days in enumerate(C.MARKET_DAYS, start=1):
+        cumulative += int(market_days)
+        if day <= cumulative:
+            return idx
+    return len(C.MARKET_DAYS)
 
 
 def _market_start_round(round_number):
     market_number = _market_number_for_round(round_number)
-    return ((market_number - 1) * C.DAYS_PER_MARKET) + 1
+    return sum(int(d) for d in C.MARKET_DAYS[: market_number - 1]) + 1
+
+
+def _days_in_market_number(market_number):
+    idx = max(1, min(int(market_number), len(C.MARKET_DAYS))) - 1
+    return int(C.MARKET_DAYS[idx])
+
+
+def _days_in_market(round_number):
+    return _days_in_market_number(_market_number_for_round(round_number))
+
+
+def _day_in_market(round_number):
+    return max(1, _as_int(round_number, 1)) - _market_start_round(round_number) + 1
 
 
 def _is_first_round_of_market(round_number):
@@ -437,7 +432,11 @@ def _is_first_round_of_market(round_number):
 
 
 def _is_last_round_of_market(round_number):
-    return _day_in_market(round_number) == C.DAYS_PER_MARKET
+    return _day_in_market(round_number) == _days_in_market(round_number)
+
+
+def _is_training_round(round_number):
+    return _market_number_for_round(round_number) == C.TRAINING_MARKET_NUMBER
 
 
 def _trade_page_timeout_seconds(player: Player):
@@ -467,7 +466,8 @@ def _trade_page_log_context(player: Player):
         round_number=int(player.round_number or 1),
         market_number=_market_number_for_round(player.round_number),
         day_in_market=_day_in_market(player.round_number),
-        total_days=C.DAYS_PER_MARKET,
+        total_days=_days_in_market(player.round_number),
+        is_training_market=bool(_is_training_round(player.round_number)),
         configured_day_duration_minutes=_resolve_day_duration_minutes(
             player.session.config,
             C.DEFAULT_TRADING_DAY_DURATION,
@@ -541,7 +541,8 @@ def _end_of_day_log_payload(player: Player, timeout_happened):
         round_number=int(player.round_number or 1),
         market_number=_market_number_for_round(player.round_number),
         day_in_market=_day_in_market(player.round_number),
-        total_days=C.DAYS_PER_MARKET,
+        total_days=_days_in_market(player.round_number),
+        is_training_market=bool(_is_training_round(player.round_number)),
         trading_session_uuid=str(player.group.trading_session_uuid or ""),
         timeout_happened=bool(timeout_happened),
         actual_day_duration_seconds=_optional_float(debug_payload.get("actual_duration_seconds")),
@@ -553,14 +554,13 @@ def _end_of_day_log_payload(player: Player, timeout_happened):
 
 
 def _assign_payable_market(player: Player):
-    num_markets = max(
-        1,
-        _as_int(player.session.config.get("num_markets", C.NUM_MARKETS), C.NUM_MARKETS),
-    )
+    # Training market (index 1) is excluded from random payoff selection.
+    first_payable = C.TRAINING_MARKET_NUMBER + 1
+    last_payable = max(first_payable, C.NUM_MARKETS)
     payable_market = player.participant.vars.get("payable_market")
     if payable_market is None:
-        payable_market = random.randint(1, num_markets)
-    payable_market = max(1, min(_as_int(payable_market, 1), num_markets))
+        payable_market = random.randint(first_payable, last_payable)
+    payable_market = max(first_payable, min(_as_int(payable_market, first_payable), last_payable))
     player.participant.vars["payable_market"] = payable_market
     return payable_market
 
@@ -573,6 +573,8 @@ def _forecast_days(n_days):
 
 
 def _should_elicit_forecast(round_number, n_days):
+    if _is_training_round(round_number):
+        return False
     total_days = max(1, _as_int(n_days, C.DAYS_PER_MARKET))
     completed_day = _day_in_market(round_number)
     if completed_day >= total_days:
@@ -589,13 +591,10 @@ def _forecast_schedule_text(n_days):
     return f"You submit forecasts only after {period_label} {_natural_join(forecast_days)}."
 
 
-def _resolve_num_days(cfg):
-    num_days = max(1, _as_int(cfg.get("num_days", C.DEFAULT_NUM_DAYS), C.DEFAULT_NUM_DAYS))
-    if num_days != C.DAYS_PER_MARKET:
-        raise RuntimeError(
-            f"Session config num_days={num_days} must equal DAYS_PER_MARKET={C.DAYS_PER_MARKET}."
-        )
-    return num_days
+def _resolve_num_days(cfg, round_number=None):
+    if round_number is None:
+        return C.DAYS_PER_MARKET
+    return _days_in_market_number(_market_number_for_round(round_number))
 
 
 def _get_group_dividend_schedule(group: Group):
@@ -645,17 +644,12 @@ def _is_bot_participant(participant):
 def _build_initiate_payload(group: Group, players):
     cfg = group.session.config
     num_players = len(players)
-    hybrid_noise_traders = _as_int(
-        cfg.get("hybrid_noise_traders", C.DEFAULT_HYBRID_NOISE_TRADERS),
-        C.DEFAULT_HYBRID_NOISE_TRADERS,
-    )
-    force_single_nt = _should_force_nt_for_group(group)
-    num_noise_traders = 0
-    if force_single_nt and bool(group.noise_trader_present):
-        num_noise_traders = 1
-    elif str(group.group_composition or "").strip().lower() == "hybrid" and bool(group.noise_trader_present):
-        num_noise_traders = max(0, hybrid_noise_traders)
-    num_days = _resolve_num_days(cfg)
+    # All four current treatments are human-only. The only time a noise
+    # trader is added is to fill out a small remainder group below the
+    # preferred size, which is signalled by `noise_trader_present`.
+    num_noise_traders = 1 if bool(group.noise_trader_present) else 0
+    market_number = _market_number_for_round(group.subsession.round_number)
+    num_days = _days_in_market_number(market_number)
     day_duration_minutes = _resolve_day_duration_minutes(cfg, C.DEFAULT_TRADING_DAY_DURATION)
     all_dividends = [float(x) for x in C.DIVIDEND_SCHEDULE]
     required_days = C.NUM_ROUNDS
@@ -664,8 +658,7 @@ def _build_initiate_payload(group: Group, players):
             f"Dividend schedule has {len(all_dividends)} values but requires at least {required_days}."
         )
     all_dividends = all_dividends[:required_days]
-    market_number = _market_number_for_round(group.subsession.round_number)
-    market_start_idx = (market_number - 1) * C.DAYS_PER_MARKET
+    market_start_idx = sum(int(d) for d in C.MARKET_DAYS[: market_number - 1])
     market_end_idx = market_start_idx + num_days
     dividends = all_dividends[market_start_idx:market_end_idx]
     if len(dividends) < num_days:
@@ -1178,6 +1171,7 @@ class TradePage(Page):
     @staticmethod
     def vars_for_template(player: Player):
         ws_url = f"{player.group.trading_ws_base}/trader/{player.trader_uuid}"
+        hedonic_enabled, info_enabled = _treatment_flags(player.group.treatment)
         data = dict(
             ws_url=ws_url,
             trader_uuid=player.trader_uuid,
@@ -1186,6 +1180,9 @@ class TradePage(Page):
             treatment=player.group.treatment,
             market_design=player.group.market_design,
             group_composition=player.group.group_composition,
+            hedonic_enabled=hedonic_enabled,
+            info_enabled=info_enabled,
+            is_training_market=_is_training_round(player.round_number),
         )
         data.update(_instruction_context(player))
         return data
@@ -1193,10 +1190,11 @@ class TradePage(Page):
     @staticmethod
     def js_vars(player: Player):
         ws_url = f"{player.group.trading_ws_base}/trader/{player.trader_uuid}"
-        gamified = player.group.market_design == "gamified"
+        hedonic_enabled, info_enabled = _treatment_flags(player.group.treatment)
         day_duration_minutes = _resolve_day_duration_minutes(player.session.config, C.DEFAULT_TRADING_DAY_DURATION)
         market_number = _market_number_for_round(player.round_number)
         day_in_market = _day_in_market(player.round_number)
+        days_in_current_market = _days_in_market(player.round_number)
         return dict(
             wsUrl=ws_url,
             wsBase=player.group.trading_ws_base,
@@ -1205,15 +1203,21 @@ class TradePage(Page):
             tradingApiBase=player.group.trading_api_base,
             tradingSessionUuid=player.group.trading_session_uuid,
             playerIdInGroup=player.id_in_group,
-            gamified=gamified,
+            # `gamified` retains its existing meaning of "show hedonic
+            # gamification UI (badges, achievements, gamified styling)" so
+            # downstream components do not need to change.
+            gamified=hedonic_enabled,
+            hedonicEnabled=hedonic_enabled,
+            infoEnabled=info_enabled,
             treatment=player.group.treatment,
             marketDesign=player.group.market_design,
             groupComposition=player.group.group_composition,
             marketNumber=market_number,
             totalMarkets=C.NUM_MARKETS,
+            isTrainingMarket=_is_training_round(player.round_number),
             roundNumber=day_in_market,
             tradingDay=day_in_market,
-            totalRounds=C.DAYS_PER_MARKET,
+            totalRounds=days_in_current_market,
             dayDurationMinutes=day_duration_minutes,
             tradePageServerContext=_trade_page_log_context(player),
             initialTraderState=_initial_trader_state(player),
@@ -1322,6 +1326,9 @@ class AlgoBeliefAfterMarket(Page):
 
     @staticmethod
     def is_displayed(player: Player):
+        # The remaining treatments are all human-only, so this page never
+        # fires today. It is kept gated on `group_composition == "hybrid"`
+        # so a future hybrid treatment can opt in without code changes.
         return (
             _is_last_round_of_market(player.round_number)
             and str(player.group.group_composition or "").strip().lower() == "hybrid"
@@ -1354,19 +1361,30 @@ class AlgoBeliefAfterMarket(Page):
 
 
 class MarketTransition(Page):
+    """Shown only between the training market and the first paid market."""
+
     @staticmethod
     def is_displayed(player: Player):
-        market_number = _market_number_for_round(player.round_number)
-        return _is_last_round_of_market(player.round_number) and market_number < C.NUM_MARKETS
+        completed = _market_number_for_round(player.round_number)
+        return (
+            _is_last_round_of_market(player.round_number)
+            and completed == C.TRAINING_MARKET_NUMBER
+            and completed < C.NUM_MARKETS
+        )
 
     @staticmethod
     def vars_for_template(player: Player):
         completed_market = _market_number_for_round(player.round_number)
+        next_market = completed_market + 1
+        num_main_markets = max(0, C.NUM_MARKETS - 1)
         return dict(
             completed_market=completed_market,
-            next_market=completed_market + 1,
+            next_market=next_market,
             total_markets=C.NUM_MARKETS,
-            days_per_market=C.DAYS_PER_MARKET,
+            num_main_markets=num_main_markets,
+            days_per_market=_days_in_market_number(next_market),
+            next_is_training=next_market == C.TRAINING_MARKET_NUMBER,
+            completed_was_training=completed_market == C.TRAINING_MARKET_NUMBER,
         )
 
 
@@ -1400,7 +1418,8 @@ class Results(Page):
 
         return dict(
             market_number=_market_number_for_round(player.round_number),
-            total_days=C.DAYS_PER_MARKET,
+            total_days=_days_in_market(player.round_number),
+            is_training_market=_is_training_round(player.round_number),
             final_cash=final_cash,
             initial_cash=initial_cash,
             delta_cash=delta_cash,
@@ -1419,5 +1438,5 @@ page_sequence = [
     PauseTradingSession,
     DayBreak,
     AlgoBeliefAfterMarket,
-    # MarketTransition,
+    MarketTransition,
 ]

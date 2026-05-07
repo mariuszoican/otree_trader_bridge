@@ -107,7 +107,12 @@ def _market_number_for_round(round_number):
         return None
     if day <= 0:
         return None
-    return ((day - 1) // int(C.DAYS_PER_MARKET)) + 1
+    cumulative = 0
+    for idx, market_days in enumerate(C.MARKET_DAYS, start=1):
+        cumulative += int(market_days)
+        if day <= cumulative:
+            return idx
+    return len(C.MARKET_DAYS)
 
 
 def _group_trading_session_uuid(group):

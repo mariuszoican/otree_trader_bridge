@@ -31,13 +31,31 @@ def _load_dividends_csv_for_constants():
     return values
 
 
+def _market_days_schedule():
+    training_days = max(1, int(os.getenv("TRAINING_DAYS", 3)))
+    days_per_market = max(1, int(os.getenv("DAYS_PER_MARKET", 15)))
+    num_main_markets = max(1, int(os.getenv("NUM_MAIN_MARKETS", 2)))
+    return (training_days,) + (days_per_market,) * num_main_markets
+
+
 class C(BaseConstants):
     """
     Constants class for the trader bridge application.
 
+    The session always starts with a single training market (3 periods by
+    default) followed by the main trading markets (two 15-period markets by
+    default). Market 1 is the training market and is excluded from payable
+    market selection.
+
     Attributes:
         NAME_IN_URL (str): URL identifier for the app.
         PLAYERS_PER_GROUP (None): No group structure enforced.
+        MARKET_DAYS (tuple): Per-market day counts. Index 0 is the training
+            market; subsequent entries are the main markets.
+        NUM_MARKETS (int): Total markets, including training.
+        TRAINING_MARKET_NUMBER (int): 1-based index of the training market.
+        DAYS_PER_MARKET (int): Days in each main (non-training) market.
+        TRAINING_DAYS (int): Days in the training market.
         NUM_ROUNDS (int): Total rounds across all markets.
 
         DEFAULT_TRADING_API_BASE (str): Base URL for the trading API server.
@@ -52,18 +70,31 @@ class C(BaseConstants):
         DEFAULT_ALERT_STREAK_FREQUENCY (int): Frequency threshold for alert notifications.
         DEFAULT_ALERT_WINDOW_SIZE (int): Window size for calculating alert metrics.
         DEFAULT_GROUP_SIZE (int): Number of players per trading group.
-        DEFAULT_HYBRID_NOISE_TRADERS (int): Number of noise trader agents in hybrid treatment groups.
 
-        TREATMENTS (tuple): Available treatment conditions.
-        TREATMENT_MARKET_DESIGN (dict): Maps treatments to market design types (gamified or non-gamified).
-        TREATMENT_GROUP_COMPOSITION (dict): Maps treatments to group composition types (human_only or hybrid).
+        TREATMENTS (tuple): Available treatment conditions. All four are
+            human-only; they vary along the gamification dimension:
+                - ``ghp``: gamified with hedonic + price (full gamification)
+                - ``ng``:  non-gamified (control)
+                - ``gh``:  gamified hedonic only (badges/achievements)
+                - ``gp``:  gamified price only (price-trend notifications)
+        TREATMENT_MARKET_DESIGN (dict): Treatment -> gamification flavor label.
+        TREATMENT_GROUP_COMPOSITION (dict): Treatment -> group composition.
+            With the redesign, every treatment is ``human_only``.
+        TREATMENT_FLAGS (dict): Treatment -> ``(hedonic_enabled, info_enabled)``
+            tuple, used to drive the front-end UI.
     """
 
     NAME_IN_URL = "trader_bridge"
     PLAYERS_PER_GROUP = None
-    NUM_MARKETS = max(1, int(os.getenv("NUM_MARKETS", 2)))
-    DAYS_PER_MARKET = max(1, int(os.getenv("DAYS_PER_MARKET", 2)))
-    NUM_ROUNDS = int(os.getenv("NUM_ROUNDS", NUM_MARKETS * DAYS_PER_MARKET))
+
+    MARKET_DAYS = _market_days_schedule()
+    NUM_MARKETS = len(MARKET_DAYS)
+    TRAINING_MARKET_NUMBER = 1
+    TRAINING_DAYS = MARKET_DAYS[TRAINING_MARKET_NUMBER - 1]
+    # Days per (main, non-training) market. All non-training markets share the
+    # same length in the default schedule.
+    DAYS_PER_MARKET = MARKET_DAYS[1] if NUM_MARKETS > 1 else MARKET_DAYS[0]
+    NUM_ROUNDS = sum(MARKET_DAYS)
 
     DEFAULT_TRADING_API_BASE = "http://127.0.0.1:8001"
     DEFAULT_API_TIMEOUT_SECONDS = 20
@@ -78,26 +109,31 @@ class C(BaseConstants):
     DEFAULT_ALERT_STREAK_FREQUENCY = 3
     DEFAULT_ALERT_WINDOW_SIZE = 5
     DEFAULT_GROUP_SIZE = max(2, int(os.getenv("PLAYERS_PER_GROUP", 2)))
-    DEFAULT_HYBRID_NOISE_TRADERS = 1
 
-    DEFAULT_HYBRID_NOISE_TRADER_PROBABILITY = 0.2
     DEFAULT_FORECAST_BONUS_AMOUNT = 10
     DEFAULT_FORECAST_BONUS_THRESHOLD_PCT = 5
     DEFAULT_DIVIDEND_VALUES = (0, 4, 8, 20)
-    TREATMENTS = ("gh", "nh", "gm", "nm")
+    TREATMENTS = ("ghp", "ng", "gh", "gp")
     TREATMENT_MARKET_DESIGN = {
-        "gh": "gamified",
-        "gm": "gamified",
-        "nh": "non_gamified",
-        "nm": "non_gamified",
+        "ghp": "gamified",
+        "ng":  "non_gamified",
+        "gh":  "hedonic_only",
+        "gp":  "info_only",
     }
     TREATMENT_GROUP_COMPOSITION = {
-        "gh": "human_only",
-        "nh": "human_only",
-        "gm": "hybrid",
-        "nm": "hybrid",
+        "ghp": "human_only",
+        "ng":  "human_only",
+        "gh":  "human_only",
+        "gp":  "human_only",
     }
-    DEFAULT_NUM_DAYS = DAYS_PER_MARKET
+    # (hedonic_enabled, info_enabled): hedonic = badges/achievements/confetti;
+    # info = price-trend notifications.
+    TREATMENT_FLAGS = {
+        "ghp": (True, True),
+        "ng":  (False, False),
+        "gh":  (True, False),
+        "gp":  (False, True),
+    }
     DEFAULT_HUMAN_TRADER_ENDOWMENTS = (
         (2600.0, 20),
         (3800.0, 10),
