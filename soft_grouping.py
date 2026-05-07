@@ -40,11 +40,20 @@ def small_remainder_force_nt_below_size(session_config, default=6):
 
 
 def should_force_nt_for_remainder_group(session_config, realized_group_size, preferred_size):
+    """Return True when this group should run with a filler noise trader.
+
+    Two cases trigger a forced NT:
+      * Singleton test mode (``temporary_singleton_groups=True``): every group
+        is a single human, so we always add an NT to make the market viable.
+      * Normal sessions where the group came in below the preferred size and
+        below ``small_remainder_force_nt_below_size``. This works regardless
+        of ``soft_group_matching_enabled``: it covers both intentional
+        soft-matching tail groups and the plain remainder you get when the
+        participant count is not a multiple of ``players_per_group``.
+    """
     cfg = session_config or {}
-    if not soft_group_matching_enabled(cfg):
-        return False
     if _as_bool(cfg.get("temporary_singleton_groups", False), False):
-        return False
+        return True
     threshold = small_remainder_force_nt_below_size(cfg, 6)
     if threshold <= 0:
         return False
