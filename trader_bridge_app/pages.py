@@ -204,7 +204,7 @@ def _instruction_context(player):
         forecast_bonus_threshold_pct=_format_number(forecast_bonus_threshold_pct),
         dividend_values_text=_money_series_text(shown_dividends),
         payoff_period=num_days,
-        exchange_rate_text=_format_number(exchange_rate),
+        exchange_rate_text=f"{exchange_rate:g}",
         quiz_bonus_per_correct_text=_format_number(quiz_bonus_per_correct),
         forecast_schedule_text=_forecast_schedule_text(num_days),
         num_days_after_first=max(0, num_days - 1),
