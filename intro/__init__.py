@@ -391,7 +391,7 @@ class C(BaseConstants):
     NUM_ROUNDS = 1
     TREATMENTS = ("ghp", "ng", "gh", "gp")
     # Two ghp + two ng + one gh + one gp per cycle (mod 6).
-    WEIGHTED_TREATMENT_SEQUENCE = ("ghp", "ghp", "ng", "ng", "gh", "gp")
+    WEIGHTED_TREATMENT_SEQUENCE = ("ghp", "ng", "ghp","ng", "gh", "gp")
     TREATMENT_MARKET_DESIGN = {
         "ghp": "gamified",
         "ng":  "non_gamified",
