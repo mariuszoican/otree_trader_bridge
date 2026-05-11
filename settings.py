@@ -30,25 +30,23 @@ def _load_local_env():
 _load_local_env()
 
 _BASE_PREFERRED_PLAYERS_PER_GROUP = max(2, int(environ.get("PLAYERS_PER_GROUP", 2)))
-_BASE_TREATMENTS = ["gh", "gh", "nh", "nh", "gm", "nm"]
-_ALL_HYBRID_TREATMENTS = ["gm", "gm", "nm", "nm", "gm", "nm"]
+# All four treatments are human-only; they vary along the gamification
+# dimension. The cycle gives 2 ghp + 2 ng + 1 gh + 1 gp every 6 groups.
+_BASE_TREATMENTS = ["ghp", "ghp", "ng", "ng", "gh", "gp"]
 
-# TEMP TEST MODE: force singleton groups and guarantee NT presence in every market.
-# Remove this block after timing/debugging is finished.
-TEMP_SINGLE_PLAYER_ALL_NT_TEST_MODE = False
-# TEMP TEST MODE: keep all markets hybrid while preserving normal group sizes.
-# Remove this block after timing/debugging is finished.
-TEMP_ALL_HYBRID_MARKETS = False
-
-PREFERRED_PLAYERS_PER_GROUP = 1 if TEMP_SINGLE_PLAYER_ALL_NT_TEST_MODE else _BASE_PREFERRED_PLAYERS_PER_GROUP
-PLAYERS_PER_GROUP = None
-SESSION_TREATMENTS = (
-    _ALL_HYBRID_TREATMENTS
-    if TEMP_SINGLE_PLAYER_ALL_NT_TEST_MODE
-    else (_ALL_HYBRID_TREATMENTS if TEMP_ALL_HYBRID_MARKETS else list(_BASE_TREATMENTS))
+# Test mode: every player is alone in their own group with a filler noise
+# trader, so a single tab can drive the full session end-to-end. Useful for
+# quick smoke tests; do not enable for live sessions. Driven by env var so
+# you can flip it without editing settings.
+TEMP_SINGLE_PLAYER_TEST_MODE = (
+    str(environ.get("TEMP_SINGLE_PLAYER_TEST_MODE", "")).strip().lower()
+    in {"1", "true", "yes", "on"}
 )
-HYBRID_NOISE_TRADER_PROBABILITY = 1 if TEMP_SINGLE_PLAYER_ALL_NT_TEST_MODE else 0.2
-TEMP_SINGLETON_GROUPS = bool(TEMP_SINGLE_PLAYER_ALL_NT_TEST_MODE)
+
+PREFERRED_PLAYERS_PER_GROUP = 1 if TEMP_SINGLE_PLAYER_TEST_MODE else _BASE_PREFERRED_PLAYERS_PER_GROUP
+PLAYERS_PER_GROUP = None
+SESSION_TREATMENTS = list(_BASE_TREATMENTS)
+TEMP_SINGLETON_GROUPS = TEMP_SINGLE_PLAYER_TEST_MODE
 
 # App defaults still read PLAYERS_PER_GROUP from env for display/default logic.
 environ["PLAYERS_PER_GROUP"] = str(PREFERRED_PLAYERS_PER_GROUP)
@@ -90,8 +88,6 @@ SESSION_CONFIGS = [
         step=1,
         max_orders_per_minute=10,
         noise_trader_start_second=5,
-        hybrid_noise_traders=1,
-        hybrid_noise_trader_probability=HYBRID_NOISE_TRADER_PROBABILITY,
         treatments=SESSION_TREATMENTS,
         initial_midpoint=120,
         initial_spread=10,
@@ -118,8 +114,8 @@ SESSION_CONFIGS = [
         num_demo_participants=12,
         players_per_group=PREFERRED_PLAYERS_PER_GROUP,
         preferred_players_per_group=PREFERRED_PLAYERS_PER_GROUP,
-        soft_group_matching_enabled=False,
-        small_remainder_force_nt_below_size=6,
+        soft_group_matching_enabled=True,
+        small_remainder_force_nt_below_size=4,
         temporary_singleton_groups=TEMP_SINGLETON_GROUPS,
         show_intro_video_page=True,
         show_lab_contact_page=True,
@@ -130,8 +126,6 @@ SESSION_CONFIGS = [
         step=1,
         max_orders_per_minute=10,
         noise_trader_start_second=5,
-        hybrid_noise_traders=1,
-        hybrid_noise_trader_probability=HYBRID_NOISE_TRADER_PROBABILITY,
         treatments=SESSION_TREATMENTS,
         initial_midpoint=120,
         initial_spread=10,
@@ -144,15 +138,18 @@ SESSION_CONFIGS = [
 
 
 SESSION_CONFIG_DEFAULTS = dict(
-    real_world_currency_per_point=1.00,
+    real_world_currency_per_point=0.002,
     participation_fee=0.00,
     fee_per_correct_answer=10,
-    hybrid_noise_trader_probability=0.2,
     trading_day_duration=1,
     forecast_bonus_amount=20,
     forecast_bonus_threshold_pct=5,
     preferred_players_per_group=PREFERRED_PLAYERS_PER_GROUP,
     soft_group_matching_enabled=False,
+    # If a tail group ends up smaller than this many humans, the trading
+    # backend is started with a single noise trader so the market remains
+    # viable. This is purely about filling out incomplete groups; it does
+    # not change the treatment assigned to those participants.
     small_remainder_force_nt_below_size=6,
     dividend_values=[0, 4, 8, 20],
     show_intro_video_page=True,

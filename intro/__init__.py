@@ -17,7 +17,6 @@ from soft_grouping import (
     preferred_players_per_group,
     realized_group_size_for_player,
     session_planned_participant_count,
-    should_force_nt_for_remainder_group,
     soft_group_matching_enabled,
 )
 
@@ -186,6 +185,8 @@ def _forecast_schedule_text(n_days):
 def _experiment_params(player: "Player"):
     cfg = player.session.config
     num_markets = max(1, _as_int(cfg.get("num_markets", C.DEFAULT_NUM_MARKETS), C.DEFAULT_NUM_MARKETS))
+    num_main_markets = max(0, num_markets - 1)
+    training_days = max(1, _as_int(cfg.get("training_days", C.DEFAULT_TRAINING_DAYS), C.DEFAULT_TRAINING_DAYS))
     preferred_size = preferred_players_per_group(cfg, C.DEFAULT_GROUP_SIZE)
     num_human_traders = realized_group_size_for_player(player, preferred_size)
     other_human_traders = max(0, num_human_traders - 1)
@@ -234,13 +235,16 @@ def _experiment_params(player: "Player"):
     quiz_bonus_per_correct = _as_float(cfg.get("fee_per_correct_answer", 1), 1)
 
     example_dividend = quiz_dividend_values[-1]
+    total_periods = training_days + num_main_markets * days_per_market
     return dict(
         num_human_traders=num_human_traders,
         other_human_traders=other_human_traders,
         has_algorithmic_traders=has_algorithmic_traders,
         num_markets=num_markets,
+        num_main_markets=num_main_markets,
+        training_days=training_days,
         num_days=days_per_market,
-        total_periods=num_markets * days_per_market,
+        total_periods=total_periods,
         trading_day_duration=day_duration_minutes,
         market_total_minutes=market_total_minutes,
         endowment_options_text=_format_endowment_options_text(endowment_options),
@@ -257,7 +261,7 @@ def _experiment_params(player: "Player"):
         example_period_next=4,
         example_dividend=_money(example_dividend),
         payoff_period=days_per_market,
-        exchange_rate_text=_format_number(exchange_rate),
+        exchange_rate_text=f"{exchange_rate:g}",
         quiz_bonus_per_correct_text=_format_number(quiz_bonus_per_correct),
         forecast_schedule_text=_forecast_schedule_text(days_per_market),
         num_days_after_first=max(0, days_per_market - 1),
@@ -351,7 +355,7 @@ class Page(oTreePage):
         r['endowment'] = self.session.config.get('endowment', 100)
         r['belief_bonus_amount'] = self.session.config.get('belief_bonus_amount', 1)
         r['forecast_bonus_amount'] = self.session.config.get('forecast_bonus_amount', 1)
-        r['condition'] = self.participant.vars.get('condition', 'gh')
+        r['condition'] = self.participant.vars.get('condition', 'ghp')
         r.update(exp_params)
         return r
 
@@ -385,26 +389,29 @@ class C(BaseConstants):
     NAME_IN_URL = 'intro'
     PLAYERS_PER_GROUP = None
     NUM_ROUNDS = 1
-    TREATMENTS = ("gh", "nh", "gm", "nm")
-    WEIGHTED_TREATMENT_SEQUENCE = ("gh", "gh", "nh", "nh", "gm", "nm")
+    TREATMENTS = ("ghp", "ng", "gh", "gp")
+    # Two ghp + two ng + one gh + one gp per cycle (mod 6).
+    WEIGHTED_TREATMENT_SEQUENCE = ("ghp", "ghp", "ng", "ng", "gh", "gp")
     TREATMENT_MARKET_DESIGN = {
-        "gh": "gamified",
-        "gm": "gamified",
-        "nh": "non_gamified",
-        "nm": "non_gamified",
+        "ghp": "gamified",
+        "ng":  "non_gamified",
+        "gh":  "hedonic_only",
+        "gp":  "info_only",
     }
     TREATMENT_GROUP_COMPOSITION = {
-        "gh": "human_only",
-        "nh": "human_only",
-        "gm": "hybrid",
-        "nm": "hybrid",
+        "ghp": "human_only",
+        "ng":  "human_only",
+        "gh":  "human_only",
+        "gp":  "human_only",
     }
-    DEFAULT_NUM_MARKETS = max(1, int(os.getenv("NUM_MARKETS", 2)))
-    DEFAULT_DAYS_PER_MARKET = max(1, int(os.getenv("DAYS_PER_MARKET", 2)))
+    # 1 training market + N main markets. Default: 1 + 2.
+    DEFAULT_TRAINING_DAYS = max(1, int(os.getenv("TRAINING_DAYS", 3)))
+    DEFAULT_NUM_MAIN_MARKETS = max(1, int(os.getenv("NUM_MAIN_MARKETS", 2)))
+    DEFAULT_NUM_MARKETS = 1 + DEFAULT_NUM_MAIN_MARKETS
+    DEFAULT_DAYS_PER_MARKET = max(1, int(os.getenv("DAYS_PER_MARKET", 15)))
     DEFAULT_TRADING_DAY_DURATION = 1
     DEFAULT_FORECAST_BONUS_AMOUNT = 1
     DEFAULT_FORECAST_BONUS_THRESHOLD_PCT = 1
-    DEFAULT_HYBRID_NOISE_TRADERS = 1
     DEFAULT_GROUP_SIZE = max(2, int(os.getenv("PLAYERS_PER_GROUP", 2)))
     DEFAULT_DIVIDEND_VALUES = (0, 4, 8, 20)
     DEFAULT_HUMAN_TRADER_ENDOWMENTS = (
@@ -418,7 +425,7 @@ class Subsession(BaseSubsession):
 
 
 class Group(BaseGroup):
-    treatment = models.StringField(initial="gh")
+    treatment = models.StringField(initial="ghp")
     market_design = models.StringField(initial="gamified")
     group_composition = models.StringField(initial="human_only")
     realized_group_size = models.IntegerField(initial=0)
@@ -446,21 +453,8 @@ def _set_group_treatment(group: Group, treatment: str):
     group.group_composition = C.TREATMENT_GROUP_COMPOSITION[treatment_value]
 
 
-def _hybrid_equivalent_treatment(treatment: str):
-    treatment_value = str(treatment or "").strip().lower()
-    return {
-        "gh": "gm",
-        "nh": "nm",
-        "gm": "gm",
-        "nm": "nm",
-    }.get(treatment_value, "gm")
-
-
 def _assign_group_treatment(group: Group, treatment: str):
     _set_group_treatment(group, treatment)
-    preferred_size = preferred_players_per_group(group.session.config, C.DEFAULT_GROUP_SIZE)
-    if should_force_nt_for_remainder_group(group.session.config, group.realized_group_size, preferred_size):
-        _set_group_treatment(group, _hybrid_equivalent_treatment(group.treatment))
 
 
 def _build_intro_group_matrix(subsession):
