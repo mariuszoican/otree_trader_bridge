@@ -834,30 +834,42 @@ def _score_previous_round_forecasts(group: Group, closing_price):
 def _copy_market_start_trading_state(group: Group):
     source_round = _market_start_round(group.subsession.round_number)
     source_group = group.in_round(source_round)
-    group.trading_session_uuid = source_group.trading_session_uuid
-    group.trading_api_base = source_group.trading_api_base
-    group.trading_ws_base = source_group.trading_ws_base
-    group.trading_day_duration_minutes = source_group.trading_day_duration_minutes
-    group.num_days = source_group.num_days
-    group.dividends_csv = source_group.dividends_csv
-    group.noise_trader_draw = _as_float(source_group.noise_trader_draw, 0.0)
-    group.noise_trader_present = bool(source_group.noise_trader_present)
-    group.trading_init_error = _group_init_error(source_group)
+    source_values = dict(
+        trading_session_uuid=source_group.trading_session_uuid,
+        trading_api_base=source_group.trading_api_base,
+        trading_ws_base=source_group.trading_ws_base,
+        trading_day_duration_minutes=source_group.trading_day_duration_minutes,
+        num_days=source_group.num_days,
+        dividends_csv=source_group.dividends_csv,
+        noise_trader_draw=_as_float(source_group.noise_trader_draw, 0.0),
+        noise_trader_present=bool(source_group.noise_trader_present),
+        trading_init_error=_group_init_error(source_group),
+    )
+    player_values = []
     for player in group.get_players():
         source_player = player.in_round(source_round)
-        player.trader_uuid = source_player.trader_uuid or str(player.participant.vars.get("trader_uuid") or "")
-        player.assigned_initial_cash = _as_float(
-            source_player.assigned_initial_cash,
-            _as_float(player.participant.vars.get("assigned_initial_cash"), C.DEFAULT_INITIAL_CASH),
+        player_values.append(
+            (
+                player,
+                source_player.trader_uuid,
+                _as_float(source_player.assigned_initial_cash, C.DEFAULT_INITIAL_CASH),
+                _as_float(source_player.assigned_initial_shares, C.DEFAULT_INITIAL_STOCKS),
+            )
         )
-        player.assigned_initial_shares = _as_float(
-            source_player.assigned_initial_shares,
-            _as_float(player.participant.vars.get("assigned_initial_shares"), C.DEFAULT_INITIAL_STOCKS),
-        )
-        player.participant.vars["assigned_initial_cash"] = player.assigned_initial_cash
-        player.participant.vars["assigned_initial_shares"] = player.assigned_initial_shares
-        if player.trader_uuid:
-            player.participant.vars["trader_uuid"] = player.trader_uuid
+
+    group.trading_session_uuid = source_values["trading_session_uuid"]
+    group.trading_api_base = source_values["trading_api_base"]
+    group.trading_ws_base = source_values["trading_ws_base"]
+    group.trading_day_duration_minutes = source_values["trading_day_duration_minutes"]
+    group.num_days = source_values["num_days"]
+    group.dividends_csv = source_values["dividends_csv"]
+    group.noise_trader_draw = source_values["noise_trader_draw"]
+    group.noise_trader_present = source_values["noise_trader_present"]
+    group.trading_init_error = source_values["trading_init_error"]
+    for player, trader_uuid, initial_cash, initial_shares in player_values:
+        player.trader_uuid = str(trader_uuid or "")
+        player.assigned_initial_cash = initial_cash
+        player.assigned_initial_shares = initial_shares
 
 
 def _copy_round_1_trading_state(group: Group):
@@ -1067,19 +1079,41 @@ class SyncTradingSession(WaitPage):
         return _is_first_round_of_market(player.round_number)
 
 
+def _transition_log_context(group: Group):
+    player_count = _as_int(getattr(group, "realized_group_size", None), 0)
+    if player_count <= 0:
+        try:
+            player_count = len(group.get_players())
+        except Exception:
+            player_count = 0
+    return dict(
+        group_id=getattr(group, "id", None),
+        session_code=getattr(group.session, "code", None),
+        round_number=getattr(group.subsession, "round_number", None),
+        market_number=_market_number_for_round(group.subsession.round_number),
+        day_in_market=_day_in_market(group.subsession.round_number),
+        player_count=player_count,
+        trading_session_uuid=str(group.trading_session_uuid or ""),
+    )
+
+
 def resume_trading_after_wait(group: Group):
     _copy_market_start_trading_state(group)
+    log_context = _transition_log_context(group)
+    _log("resume_trading_after_wait starting", **log_context)
     if _group_init_error(group):
+        _log("resume_trading_after_wait skipped due to init error", **log_context)
         return
     if not group.trading_session_uuid:
         group.trading_init_error = "Missing market-start trading session UUID; cannot resume."
+        _log("resume_trading_after_wait missing trading session UUID", **log_context)
         return
     try:
         result = _resume_trading_session(group)
         _log(
             "resume_trading_after_wait succeeded",
-            round_number=group.subsession.round_number,
-            trading_session_uuid=group.trading_session_uuid,
+            **log_context,
+            backend_status=result.get("status"),
             result=result,
         )
         group.trading_init_error = ""
@@ -1087,8 +1121,7 @@ def resume_trading_after_wait(group: Group):
         group.trading_init_error = str(exc)
         _log(
             "resume_trading_after_wait failed",
-            round_number=group.subsession.round_number,
-            trading_session_uuid=group.trading_session_uuid,
+            **log_context,
             error=str(exc),
             traceback=traceback.format_exc(),
         )
@@ -1096,10 +1129,14 @@ def resume_trading_after_wait(group: Group):
 
 def pause_trading_after_wait(group: Group):
     _copy_market_start_trading_state(group)
+    log_context = _transition_log_context(group)
+    _log("pause_trading_after_wait starting", **log_context)
     if _group_init_error(group):
+        _log("pause_trading_after_wait skipped due to init error", **log_context)
         return
     if not group.trading_session_uuid:
         group.trading_init_error = "Missing trading session UUID; cannot pause."
+        _log("pause_trading_after_wait missing trading session UUID", **log_context)
         return
     try:
         result = _pause_trading_session(group)
@@ -1109,8 +1146,8 @@ def pause_trading_after_wait(group: Group):
         )
         _log(
             "pause_trading_after_wait succeeded",
-            round_number=group.subsession.round_number,
-            trading_session_uuid=group.trading_session_uuid,
+            **log_context,
+            backend_status=result.get("status"),
             result=result,
         )
         group.trading_init_error = ""
@@ -1118,8 +1155,38 @@ def pause_trading_after_wait(group: Group):
         group.trading_init_error = str(exc)
         _log(
             "pause_trading_after_wait failed",
-            round_number=group.subsession.round_number,
-            trading_session_uuid=group.trading_session_uuid,
+            **log_context,
+            error=str(exc),
+            traceback=traceback.format_exc(),
+        )
+
+
+def finalize_trading_after_wait(group: Group):
+    _copy_market_start_trading_state(group)
+    log_context = _transition_log_context(group)
+    _log("finalize_trading_after_wait starting", **log_context)
+    if _group_init_error(group):
+        _log("finalize_trading_after_wait skipped due to init error", **log_context)
+        return
+    if not group.trading_session_uuid:
+        group.trading_init_error = "Missing trading session UUID; cannot finalize."
+        _log("finalize_trading_after_wait missing trading session UUID", **log_context)
+        return
+    try:
+        result = _finalize_trading_session(group)
+        _capture_daybreak_state(group)
+        _log(
+            "finalize_trading_after_wait succeeded",
+            **log_context,
+            backend_status=result.get("status"),
+            result=result,
+        )
+        group.trading_init_error = ""
+    except Exception as exc:
+        group.trading_init_error = str(exc)
+        _log(
+            "finalize_trading_after_wait failed",
+            **log_context,
             error=str(exc),
             traceback=traceback.format_exc(),
         )
@@ -1134,6 +1201,19 @@ class PauseTradingSession(WaitPage):
     def is_displayed(player: Player):
         return (
             not _is_last_round_of_market(player.round_number)
+            and not _group_init_error(player.group)
+        )
+
+
+class FinalizeTradingSession(WaitPage):
+    title_text = "Closing Market"
+    body_text = "Please wait while the market is closed."
+    after_all_players_arrive = finalize_trading_after_wait
+
+    @staticmethod
+    def is_displayed(player: Player):
+        return (
+            _is_last_round_of_market(player.round_number)
             and not _group_init_error(player.group)
         )
 
@@ -1265,16 +1345,11 @@ class DayBreak(Page):
 
     @staticmethod
     def vars_for_template(player: Player):
-        _copy_market_start_trading_state(player.group)
         market_number = _market_number_for_round(player.round_number)
         completed_day = _day_in_market(player.round_number)
         num_days = max(1, _as_int(player.group.field_maybe_none("num_days"), C.DAYS_PER_MARKET))
         is_final_day = _is_last_round_of_market(player.round_number)
         should_elicit_forecast = _should_elicit_forecast(player.round_number, num_days)
-        if is_final_day:
-            _finalize_trading_session(player.group)
-            # On the last day there is no pause wait page, so finalize first and then capture the final snapshot here.
-            _capture_daybreak_state(player.group)
         return dict(
             market_number=market_number,
             completed_day=completed_day,
@@ -1377,23 +1452,11 @@ class Results(Page):
 
     @staticmethod
     def vars_for_template(player: Player):
-        _copy_market_start_trading_state(player.group)
         final_cash = _as_float(player.field_maybe_none("cash_after_dividend"), 0.0)
         total_shares = _as_float(player.field_maybe_none("num_shares"), 0.0)
         available_shares = total_shares
         reserved_shares = 0.0
         snapshot_error = ""
-
-        trader_id = str(player.trader_uuid or "").strip()
-        if trader_id and player.group.trading_api_base:
-            try:
-                snapshot = _fetch_trader_info(player.group, trader_id)
-                final_cash = _as_float(snapshot.get("cash", final_cash), final_cash)
-                total_shares = _as_float(snapshot.get("shares", total_shares), total_shares)
-                available_shares = _as_float(snapshot.get("available_shares", available_shares), available_shares)
-                reserved_shares = _as_float(snapshot.get("reserved_shares", reserved_shares), reserved_shares)
-            except Exception as exc:
-                snapshot_error = str(exc)
 
         initial_cash = _as_float(player.assigned_initial_cash, C.DEFAULT_INITIAL_CASH)
         delta_cash = final_cash - initial_cash
@@ -1417,6 +1480,7 @@ page_sequence = [
     InitFailed,
     TradePage,
     PauseTradingSession,
+    FinalizeTradingSession,
     DayBreak,
     AlgoBeliefAfterMarket,
     # MarketTransition,

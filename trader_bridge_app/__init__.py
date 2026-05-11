@@ -6,7 +6,9 @@ opens a websocket-driven trading page.
 from .constants import C
 from .models import Group, Player, Subsession
 from .pages import (
+    AlgoBeliefAfterMarket,
     DayBreak,
+    FinalizeTradingSession,
     InitFailed,
     Intro,
     MarketTransition,

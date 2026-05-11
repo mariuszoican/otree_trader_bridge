@@ -9,6 +9,7 @@ from unittest.mock import patch
 from otree.api import Bot, Submission
 
 from . import *
+from . import pages as bridge_pages
 from . import export
 from .pages import _is_last_round_of_market, _market_number_for_round, _should_elicit_forecast
 
@@ -145,6 +146,82 @@ class PlayerBot(Bot):
             assert "cumulative_bonuses" in self.participant.vars
             if self.player.id_in_group == 1:
                 _assert_simulated_export_rows(self.participant)
+
+
+class TransitionSideEffectTests(unittest.TestCase):
+    def test_daybreak_template_does_not_run_transition_side_effects(self):
+        group = SimpleNamespace(
+            field_maybe_none=lambda name: C.DAYS_PER_MARKET if name == "num_days" else None,
+        )
+        player = SimpleNamespace(
+            round_number=C.DAYS_PER_MARKET,
+            group=group,
+            current_cash=100.0,
+            num_shares=2.0,
+            dividend_per_share=4.0,
+            dividend_cash=8.0,
+            cash_after_dividend=108.0,
+            daybreak_snapshot_error="",
+            field_maybe_none=lambda name: None,
+        )
+
+        with patch.object(bridge_pages, "_copy_market_start_trading_state") as copy_state, patch.object(
+            bridge_pages, "_finalize_trading_session"
+        ) as finalize, patch.object(bridge_pages, "_capture_daybreak_state") as capture:
+            context = bridge_pages.DayBreak.vars_for_template(player)
+
+        copy_state.assert_not_called()
+        finalize.assert_not_called()
+        capture.assert_not_called()
+        assert context["is_final_day"] is True
+
+    def test_results_template_does_not_copy_state_or_fetch_live_trader_info(self):
+        group = SimpleNamespace(trading_api_base="https://trading.example")
+        player = SimpleNamespace(
+            round_number=C.DAYS_PER_MARKET,
+            group=group,
+            trader_uuid="trader-1",
+            assigned_initial_cash=100.0,
+            field_maybe_none=lambda name: {
+                "cash_after_dividend": 125.0,
+                "num_shares": 3.0,
+            }.get(name),
+        )
+
+        with patch.object(bridge_pages, "_copy_market_start_trading_state") as copy_state, patch.object(
+            bridge_pages, "_fetch_trader_info"
+        ) as fetch_info:
+            context = bridge_pages.Results.vars_for_template(player)
+
+        copy_state.assert_not_called()
+        fetch_info.assert_not_called()
+        assert context["final_cash"] == 125.0
+        assert context["final_total_shares"] == 3.0
+
+    def test_final_day_transition_has_dedicated_wait_page(self):
+        assert hasattr(bridge_pages, "FinalizeTradingSession")
+
+        group = SimpleNamespace(
+            trading_session_uuid="session-1",
+            trading_api_base="https://trading.example",
+            trading_init_error="",
+            field_maybe_none=lambda name: "",
+            get_players=lambda: [SimpleNamespace(id_in_group=1), SimpleNamespace(id_in_group=2)],
+            subsession=SimpleNamespace(round_number=C.DAYS_PER_MARKET),
+            session=SimpleNamespace(code="session-code"),
+            id=7,
+        )
+        player = SimpleNamespace(round_number=C.DAYS_PER_MARKET, group=group)
+
+        assert bridge_pages.FinalizeTradingSession.is_displayed(player) is True
+        with patch.object(bridge_pages, "_copy_market_start_trading_state") as copy_state, patch.object(
+            bridge_pages, "_finalize_trading_session", return_value={"status": "closed"}
+        ) as finalize, patch.object(bridge_pages, "_capture_daybreak_state") as capture:
+            bridge_pages.finalize_trading_after_wait(group)
+
+        copy_state.assert_called_once_with(group)
+        finalize.assert_called_once_with(group)
+        capture.assert_called_once_with(group)
 
 
 class ExportTests(unittest.TestCase):
