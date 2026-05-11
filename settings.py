@@ -32,7 +32,7 @@ _load_local_env()
 _BASE_PREFERRED_PLAYERS_PER_GROUP = max(2, int(environ.get("PLAYERS_PER_GROUP", 2)))
 # All four treatments are human-only; they vary along the gamification
 # dimension. The cycle gives 2 ghp + 2 ng + 1 gh + 1 gp every 6 groups.
-_BASE_TREATMENTS = ["ghp", "ghp", "ng", "ng", "gh", "gp"]
+_BASE_TREATMENTS = ["ghp", "ng", "ghp", "ng", "gh", "gp"]
 
 # Test mode: every player is alone in their own group with a filler noise
 # trader, so a single tab can drive the full session end-to-end. Useful for
